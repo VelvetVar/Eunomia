@@ -1,0 +1,26 @@
+node_modules/
+.npm-cache/
+.test-data/
+*.tgz
+coverage/
+dist/
+.tools/
+/eunomia.exe
+/eunomia
+
+# Extracted release packages
+/eunomia-windows/
+/eunomia-linux/
+
+# Local profiles, runtime records, and credentials
+devices.json
+devices.json.*
+running.json
+install.lock
+known_hosts*
+id_rsa*
+id_ed25519*
+*.key
+*.pem
+.env
+.env.*

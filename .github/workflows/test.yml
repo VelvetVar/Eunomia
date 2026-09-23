@@ -1,0 +1,66 @@
+name: Go cross-platform tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+      - run: go mod download
+      - run: go vet ./...
+      - run: go test -v ./...
+      - name: Check for data races
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+      - name: Build native executable
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then name=eunomia.exe; else name=eunomia; fi
+          CGO_ENABLED=0 go build -trimpath -o "$name" ./cmd/eunomia
+          "./$name" doctor
+      - name: Check POSIX scripts
+        if: runner.os != 'Windows'
+        run: |
+          sh -n setup.sh
+          sh ./eunomia.sh --version
+      - name: Check Windows launcher
+        if: runner.os == 'Windows'
+        run: .\eunomia.cmd --version
+      - name: Build shipping packages
+        if: runner.os != 'macOS'
+        run: go run ./cmd/release
+      - name: Install Windows package twice, offline
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Expand-Archive dist/eunomia-windows.zip "$env:RUNNER_TEMP/package-test"
+          $env:EUNOMIA_HOME = "$env:RUNNER_TEMP/eunomia-profiles"
+          $setup = "$env:RUNNER_TEMP/package-test/eunomia-windows/setup.ps1"
+          1..2 | ForEach-Object {
+            & $setup -InstallRoot "$env:RUNNER_TEMP/Eunomia Install" -BinDir "$env:RUNNER_TEMP/Eunomia Commands" -NoPath -SkipSystemChanges -Offline
+          }
+          & "$env:RUNNER_TEMP/Eunomia Commands/eunomia.exe" doctor
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install Linux package twice, offline
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p "$RUNNER_TEMP/package-test"
+          tar -xzf dist/eunomia-linux.tar.gz -C "$RUNNER_TEMP/package-test"
+          export EUNOMIA_HOME="$RUNNER_TEMP/eunomia-profiles"
+          for attempt in 1 2; do
+            sh "$RUNNER_TEMP/package-test/eunomia-linux/setup.sh" --root "$RUNNER_TEMP/Eunomia Install" --bin "$RUNNER_TEMP/Eunomia Commands" --no-path --skip-system --offline
+          done
+          "$RUNNER_TEMP/Eunomia Commands/eunomia" doctor
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: eunomia-native-packages
+          path: dist/
