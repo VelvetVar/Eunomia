@@ -8,6 +8,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,33 @@ func TestHostKeyTargetsAndPaths(t *testing.T) {
 	}
 	if _, _, err = ParseHostConfig("userknownhostsfile relative", fixtureDevice(), home); err == nil {
 		t.Fatal("relative path accepted")
+	}
+}
+
+func TestFingerprintLookupPropagatesToolFailures(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(file, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range []int{-1, 2} {
+		_, err := prepareKeys(context.Background(), fixtureDevice(), "ssh", "ssh-keygen", func(_ context.Context, _ string, args []string) (ToolResult, error) {
+			if args[0] == "-G" {
+				return ToolResult{Stdout: "userknownhostsfile " + file}, nil
+			}
+			return ToolResult{Code: code}, nil
+		})
+		if err == nil {
+			t.Fatalf("exit %d reported as no matching fingerprint", code)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = RunTool(ctx, executable, nil); !errors.Is(err, context.Canceled) {
+		t.Fatal("cancellation was hidden", err)
 	}
 }
 func TestNativeHashedFingerprintRemoval(t *testing.T) {

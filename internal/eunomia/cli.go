@@ -16,7 +16,7 @@ import (
 	"text/tabwriter"
 )
 
-var Version = "2.0.0"
+var Version = "2.0.1"
 
 const help = `EUNOMIA / Native Go homelab manager
 

@@ -11,12 +11,38 @@ case "$(uname -s)" in
   Darwin) eunomia_os=darwin ;;
   *) printf '%s\n' 'Unsupported operating system.' >&2; exit 1 ;;
 esac
+# Validate options before building anything or invoking a package manager.
+eunomia_install=${EUNOMIA_INSTALL_ROOT:-"$HOME/.local/share/eunomia"}
+eunomia_bin=${EUNOMIA_BIN_DIR:-"$HOME/.local/bin"}
+eunomia_no_path=''
+eunomia_skip=0
+eunomia_offline=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --root|--bin)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || { printf '%s requires a path\n' "$1" >&2; exit 1; }
+      if [ "$1" = --root ]; then eunomia_install=$2; else eunomia_bin=$2; fi
+      shift 2 ;;
+    --no-path) eunomia_no_path=1; shift ;;
+    --offline) eunomia_offline=1; eunomia_skip=1; shift ;;
+    --skip-system) eunomia_skip=1; shift ;;
+    --help|-h) printf '%s\n' 'Usage: sh setup.sh [--root PATH] [--bin PATH] [--no-path] [--offline] [--skip-system]'; exit 0 ;;
+    *) printf 'Unknown setup option: %s\n' "$1" >&2; exit 1 ;;
+  esac
+done
+for eunomia_path in "$eunomia_install" "$eunomia_bin"; do
+  case "$eunomia_path" in /*) ;; *) printf '%s\n' 'Install and command directories must be absolute paths.' >&2; exit 1 ;; esac
+done
 case "$(uname -m)" in x86_64|amd64) eunomia_arch=amd64 ;; aarch64|arm64) eunomia_arch=arm64 ;; *) printf '%s\n' 'This release includes x64 and ARM64 binaries. Build from Go source on other architectures.' >&2; exit 1 ;; esac
 eunomia_binary="$eunomia_root/bin/$eunomia_os-$eunomia_arch/eunomia"
 if [ ! -f "$eunomia_binary" ]; then
   if [ -x "$eunomia_root/eunomia" ]; then eunomia_binary="$eunomia_root/eunomia"
   elif command -v go >/dev/null 2>&1 && [ -f "$eunomia_root/go.mod" ]; then
-    (cd "$eunomia_root" && CGO_ENABLED=0 go build -trimpath -o eunomia ./cmd/eunomia)
+    if [ "$eunomia_offline" -eq 1 ]; then
+      (cd "$eunomia_root" && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -o eunomia ./cmd/eunomia)
+    else
+      (cd "$eunomia_root" && CGO_ENABLED=0 go build -trimpath -o eunomia ./cmd/eunomia)
+    fi
     eunomia_binary="$eunomia_root/eunomia"
   else printf '%s\n' 'Binary missing. Extract a complete Eunomia release package, or install Go 1.26+ to build this source checkout.' >&2; exit 1; fi
 fi
@@ -28,8 +54,6 @@ if [ -f "$eunomia_binary.sha256" ]; then
   [ "$eunomia_actual" = "$eunomia_expected" ] || { printf '%s\n' 'Executable checksum mismatch. Re-extract the package.' >&2; exit 1; }
 fi
 chmod u+x "$eunomia_binary"
-eunomia_skip=0
-for eunomia_arg in "$@"; do case "$eunomia_arg" in --skip-system|--offline) eunomia_skip=1 ;; esac; done
 as_admin() {
   if [ "$(id -u)" -eq 0 ]; then "$@"
   elif command -v sudo >/dev/null 2>&1; then sudo "$@"
@@ -48,18 +72,5 @@ if [ "$eunomia_missing" -eq 1 ] && [ "$eunomia_skip" -eq 0 ] && [ "$eunomia_os" 
   elif command -v apk >/dev/null 2>&1; then as_admin apk add openssh-client iputils
   else printf '%s\n' 'Install OpenSSH client and ping using your system package manager.' >&2; fi
 fi
-# Parse into positional variables instead of evaluating shell-built commands.
-eunomia_install=${EUNOMIA_INSTALL_ROOT:-"$HOME/.local/share/eunomia"}
-eunomia_bin=${EUNOMIA_BIN_DIR:-"$HOME/.local/bin"}
-eunomia_no_path=''
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --root) [ "$#" -ge 2 ] || exit 1; eunomia_install=$2; shift 2 ;;
-    --bin) [ "$#" -ge 2 ] || exit 1; eunomia_bin=$2; shift 2 ;;
-    --no-path) eunomia_no_path=1; shift ;;
-    --offline|--skip-system) shift ;;
-    *) printf 'Unknown setup option: %s\n' "$1" >&2; exit 1 ;;
-  esac
-done
 if [ -n "$eunomia_no_path" ]; then exec "$eunomia_binary" install --root "$eunomia_install" --bin "$eunomia_bin" --no-path; fi
 exec "$eunomia_binary" install --root "$eunomia_install" --bin "$eunomia_bin"

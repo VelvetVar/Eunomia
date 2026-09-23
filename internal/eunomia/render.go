@@ -108,9 +108,13 @@ func (a *App) prompt() string {
 }
 func (a *App) Draw() {
 	w, h := a.Screen.Size()
+	clearStyle := baseStyle
+	if _, off := os.LookupEnv("NO_COLOR"); off {
+		clearStyle = tcell.StyleDefault
+	}
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			a.Screen.SetContent(x, y, ' ', nil, baseStyle)
+			a.Screen.SetContent(x, y, ' ', nil, clearStyle)
 		}
 	}
 	a.Screen.HideCursor()
@@ -248,7 +252,7 @@ func (a *App) drawLab(w, h int) {
 	default:
 		title := fmt.Sprintf("DEVICES %d / PING EVERY 60s / p refresh", len(a.Filtered))
 		if a.Mode == "search" {
-			title = "SEARCH / " + a.Query + "▏"
+			title = "SEARCH / " + inputView(a.Query, a.searchCursor, w-15)
 			footer = "Type to filter / Enter apply / Esc clear"
 		}
 		a.put(3, top+1, title, tealStyle, w-6)
@@ -327,7 +331,15 @@ func (a *App) drawLab(w, h int) {
 func inputView(text string, cursor, width int) string {
 	chars := []rune(text)
 	cursor = max(0, min(cursor, len(chars)))
-	start := max(0, cursor-max(1, width/2))
+	start, used := cursor, 0
+	for start > 0 {
+		size := runewidth.RuneWidth(chars[start-1])
+		if used+size > max(0, (width-1)/2) {
+			break
+		}
+		start--
+		used += size
+	}
 	return string(chars[start:cursor]) + "▏" + string(chars[cursor:])
 }
 func wrapText(text string, width int) []string {
@@ -434,11 +446,12 @@ func vtColor(c color.Color, fallback tcell.Color) tcell.Color {
 	return tcell.NewRGBColor(int32(r>>8), int32(g>>8), int32(b>>8))
 }
 func cellStyle(c *uv.Cell) tcell.Style {
-	if _, off := os.LookupEnv("NO_COLOR"); off {
-		return tcell.StyleDefault
-	}
 	s := c.Style
-	return tcell.StyleDefault.Foreground(vtColor(s.Fg, tcell.ColorWhite)).Background(vtColor(s.Bg, tcell.ColorBlack)).Bold(s.Attrs&uv.AttrBold != 0).Dim(s.Attrs&uv.AttrFaint != 0).Italic(s.Attrs&uv.AttrItalic != 0).Reverse(s.Attrs&uv.AttrReverse != 0).Blink(s.Attrs&uv.AttrBlink != 0).StrikeThrough(s.Attrs&uv.AttrStrikethrough != 0).Underline(s.Underline != 0)
+	style := tcell.StyleDefault
+	if _, off := os.LookupEnv("NO_COLOR"); !off {
+		style = style.Foreground(vtColor(s.Fg, tcell.ColorWhite)).Background(vtColor(s.Bg, tcell.ColorBlack))
+	}
+	return style.Bold(s.Attrs&uv.AttrBold != 0).Dim(s.Attrs&uv.AttrFaint != 0).Italic(s.Attrs&uv.AttrItalic != 0).Reverse(s.Attrs&uv.AttrReverse != 0).Blink(s.Attrs&uv.AttrBlink != 0).StrikeThrough(s.Attrs&uv.AttrStrikethrough != 0).Underline(s.Underline != 0)
 }
 func (a *App) drawSession(s *Session, w, h int) {
 	if w < 8 || h < 3 {
@@ -462,7 +475,7 @@ func (a *App) drawSession(s *Session, w, h int) {
 			} else {
 				cell = s.Term.CellAt(x, position)
 			}
-			style := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
+			style := cellStyle(&uv.Cell{})
 			text := " "
 			if cell != nil {
 				if cell.Width == 0 {
@@ -486,6 +499,9 @@ func (a *App) drawSession(s *Session, w, h int) {
 		footer = fmt.Sprintf("Exited %d | %s", s.ExitCode, footer)
 	} else if offset > 0 {
 		footer = fmt.Sprintf("Scrollback -%d | %s", offset, footer)
+	}
+	if s.Failure != "" {
+		footer = safe(s.Failure) + " | Ctrl+B then x to close"
 	}
 	if prompt != "" {
 		footer = prompt
@@ -545,11 +561,13 @@ func Logo(w, h int, angle float64) []string {
 	}
 	scale := min(float64(w)/8.8, float64(h)/4.5)
 	tilt := .45 + .22*math.Sin(angle)
+	sinAngle, cosAngle := math.Sincos(angle)
+	sinTilt, cosTilt := math.Sincos(tilt)
 	for _, p := range logoMesh {
-		xx := p.x*math.Cos(angle) + p.z*math.Sin(angle)
-		zz := p.z*math.Cos(angle) - p.x*math.Sin(angle)
-		yy := p.y*math.Cos(tilt) - zz*math.Sin(tilt)
-		zzz := p.y*math.Sin(tilt) + zz*math.Cos(tilt)
+		xx := p.x*cosAngle + p.z*sinAngle
+		zz := p.z*cosAngle - p.x*sinAngle
+		yy := p.y*cosTilt - zz*sinTilt
+		zzz := p.y*sinTilt + zz*cosTilt
 		perspective := 9 / (9 - zzz)
 		x := int(math.Round(float64(w-1)/2 + xx*scale*2*perspective))
 		y := int(math.Round(float64(h-1)/2 - yy*scale*perspective))

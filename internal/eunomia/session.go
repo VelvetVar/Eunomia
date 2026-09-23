@@ -1,11 +1,14 @@
 package eunomia
 
 import (
+	"errors"
+	"fmt"
+	"io"
+	"sync"
+
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 	"github.com/gdamore/tcell/v2"
-	"io"
-	"sync"
 )
 
 type Session struct {
@@ -15,33 +18,66 @@ type Session struct {
 	Process       TerminalProcess
 	Exited        bool
 	ExitCode      int
+	Failure       string
 	Unread        bool
 	Offset        int
 	CursorVisible bool
 	closed        bool
-	notify        func(*Session)
 	closeOnce     sync.Once
-	writeMu       sync.Mutex
 	inputDone     chan struct{}
+	writerDone    chan struct{}
 }
 
 func NewSession(d Device, process TerminalProcess, w, h int, notify func(*Session)) *Session {
-	s := &Session{Device: d, Term: vt.NewEmulator(w, h), Process: process, CursorVisible: true, notify: notify, inputDone: make(chan struct{})}
+	s := &Session{Device: d, Term: vt.NewEmulator(w, h), Process: process, CursorVisible: true, inputDone: make(chan struct{}), writerDone: make(chan struct{})}
 	s.Term.SetScrollbackSize(2000)
 	s.Term.SetCallbacks(vt.Callbacks{CursorVisibility: func(visible bool) { s.CursorVisible = visible }})
-	// Drain terminal replies and encoded keyboard input independently of screen updates.
+	// A stopped SSH client must not block the emulator's synchronous input pipe
+	// and, through it, the UI. Bound pending input to about 1 MiB per session.
+	input := make(chan []byte, 256)
+	failInput := func(err error) {
+		s.Term.InputPipe().(io.Closer).Close()
+		s.mu.Lock()
+		if !s.closed && !s.Exited && s.Failure == "" {
+			s.Failure = "SSH input: " + err.Error()
+		}
+		s.mu.Unlock()
+		notify(s)
+		go s.Close()
+	}
 	go func() {
 		defer close(s.inputDone)
+		defer close(input)
 		buffer := make([]byte, 4096)
 		for {
 			n, err := s.Term.Read(buffer)
 			if n > 0 {
-				s.writeMu.Lock()
-				process.Write(buffer[:n])
-				s.writeMu.Unlock()
+				select {
+				case input <- append([]byte(nil), buffer[:n]...):
+				default:
+					failInput(errors.New("buffer full; session disconnected"))
+					return
+				}
 			}
 			if err != nil {
 				return
+			}
+		}
+	}()
+	go func() {
+		defer close(s.writerDone)
+		for data := range input {
+			for len(data) > 0 {
+				n, err := process.Write(data)
+				if err != nil {
+					failInput(err)
+					return
+				}
+				if n <= 0 || n > len(data) {
+					failInput(io.ErrShortWrite)
+					return
+				}
+				data = data[n:]
 			}
 		}
 	}()
@@ -64,8 +100,11 @@ func NewSession(d Device, process TerminalProcess, w, h int, notify func(*Sessio
 		}
 	}()
 	go func() {
-		code, _ := process.Wait()
+		code, err := process.Wait()
 		s.mu.Lock()
+		if err != nil && code < 0 && !s.closed && s.Failure == "" {
+			s.Failure = fmt.Sprintf("SSH process: %v", err)
+		}
 		s.Exited = true
 		s.ExitCode = code
 		s.mu.Unlock()
@@ -88,13 +127,14 @@ func (s *Session) Close() {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
+		s.Term.InputPipe().(io.Closer).Close()
 		s.mu.Unlock()
 		s.Process.Close()
-		s.mu.Lock()
 		// Close the concurrency-safe pipe and join its reader before changing
 		// the emulator's closed flag, which is not synchronized by the library.
-		s.Term.InputPipe().(io.Closer).Close()
 		<-s.inputDone
+		<-s.writerDone
+		s.mu.Lock()
 		s.Term.Close()
 		s.mu.Unlock()
 	})
@@ -186,6 +226,9 @@ func terminalKey(event *tcell.EventKey) uv.KeyPressEvent {
 			code = uv.KeyF1 + rune(key-tcell.KeyF1)
 		} else if key >= tcell.KeyCtrlA && key <= tcell.KeyCtrlZ {
 			code = 'a' + rune(key-tcell.KeyCtrlA)
+			mod |= uv.ModCtrl
+		} else if key >= tcell.KeyCtrlBackslash && key <= tcell.KeyCtrlUnderscore {
+			code = '\\' + rune(key-tcell.KeyCtrlBackslash)
 			mod |= uv.ModCtrl
 		} else if key == tcell.KeyCtrlSpace {
 			code = ' '

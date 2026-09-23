@@ -70,6 +70,33 @@ func TestStorePreservesCorruptionAndHonorsLock(t *testing.T) {
 		t.Fatal("wrote despite lock")
 	}
 }
+
+func TestStoreRejectsDuplicateNamesAfterTrimming(t *testing.T) {
+	s := Store{t.TempDir()}
+	d, err := s.Save(fixtureDevice(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := d
+	other.ID, other.Name = "second-device", "  "+d.Name+"  "
+	data, err := json.Marshal(deviceFile{Version: 1, Devices: []Device{other, d}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(s.Path(), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Read(); err == nil {
+		t.Fatal("duplicate normalized names accepted")
+	}
+	if _, err = s.Save(fixtureDevice(), ""); err == nil {
+		t.Fatal("corrupt profile was overwritten")
+	}
+	stored, err := os.ReadFile(s.Path())
+	if err != nil || !bytes.Equal(stored, data) {
+		t.Fatal("original profile changed", err)
+	}
+}
 func TestValidationAndArgumentSafety(t *testing.T) {
 	for _, host := range []string{"192.168.0.1", "2001:db8::1", "atlas.local", "Atlas"} {
 		d := fixtureDevice()

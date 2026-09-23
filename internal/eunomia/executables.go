@@ -13,7 +13,7 @@ import (
 
 func usableFile(file string) bool {
 	info, err := os.Stat(file)
-	return err == nil && !info.IsDir() && (runtime.GOOS == "windows" || info.Mode()&0111 != 0)
+	return err == nil && info.Mode().IsRegular() && ((runtime.GOOS == "windows" && strings.EqualFold(filepath.Ext(file), ".exe")) || (runtime.GOOS != "windows" && info.Mode()&0111 != 0))
 }
 func Executable(tool string) (string, error) {
 	variable := "EUNOMIA_" + strings.ToUpper(strings.ReplaceAll(tool, "-", "_"))
@@ -113,6 +113,7 @@ func Doctor() Report {
 		if err == nil && tool == "ssh" {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			cmd := exec.CommandContext(ctx, file, "-V")
+			cmd.WaitDelay = time.Second
 			quietCommand(cmd)
 			var bytes []byte
 			bytes, err = cmd.CombinedOutput()

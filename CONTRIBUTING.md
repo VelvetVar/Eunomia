@@ -104,6 +104,8 @@ Each binary directory contains the executable and its SHA-256 file. The two arch
 
 The builder only writes local files. The test workflow uploads build artifacts; it doesn't publish a GitHub release. When preparing a release, attach the two archives and `SHA256SUMS.txt`, and include the macOS binaries and their checksums if distributing them too.
 
+The README's download links point to the archives in `downloads/`. To update them, build the packages, then copy `eunomia-windows.zip`, `eunomia-linux.tar.gz`, and `SHA256SUMS.txt` from `dist/` into `downloads/`. Commit all three together. Leave unpacked binaries in `dist/`; they don't need a second copy in Git.
+
 For an installer change, test from an extracted package, including a path with spaces and a second run over an existing installation. Check that the saved device file survives unchanged. Use a temporary configuration directory and the installer's `NoPath` / `--no-path` option while testing.
 
 ## Pull requests
@@ -120,4 +122,4 @@ Keep these behaviors intact:
 - Fingerprint removal requires confirmation and keeps host-key verification enabled.
 - A bad profile file is reported without being overwritten.
 
-Don't commit device lists, SSH keys, local test data, tool caches, or built packages. Documentation should describe the current behavior and use runnable examples.
+Don't commit device lists, SSH keys, local test data, tool caches, or unpacked builds. The three published files in `downloads/` are intentional. Keep tests focused on data safety, terminal behavior, and regressions. Documentation should describe the current behavior and use runnable examples.

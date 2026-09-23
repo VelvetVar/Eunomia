@@ -4,6 +4,7 @@ permissions:
   contents: read
 jobs:
   test:
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -15,11 +16,20 @@ jobs:
         with:
           go-version: '1.27.x'
       - run: go mod download
+      - name: Verify downloadable archives
+        shell: bash
+        run: |
+          cd downloads
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum -c SHA256SUMS.txt
+          else
+            shasum -a 256 -c SHA256SUMS.txt
+          fi
       - run: go vet ./...
-      - run: go test -v ./...
+      - run: go test -v -timeout=2m ./...
       - name: Check for data races
         if: runner.os == 'Linux'
-        run: go test -race ./...
+        run: go test -race -timeout=3m ./...
       - name: Build native executable
         shell: bash
         run: |

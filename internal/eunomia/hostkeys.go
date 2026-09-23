@@ -30,12 +30,16 @@ func RunTool(ctx context.Context, file string, args []string) (ToolResult, error
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, file, args...)
+	cmd.WaitDelay = time.Second
 	quietCommand(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	result := ToolResult{Stdout: stdout.String(), Stderr: stderr.String()}
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
 	if err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
@@ -197,8 +201,11 @@ func prepareKeys(ctx context.Context, d Device, ssh, keygen string, run ToolRunn
 	}
 	plan.Target = target
 	for _, file := range files {
-		if _, err := os.Stat(file); os.IsNotExist(err) {
-			continue
+		if _, err := os.Stat(file); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return plan, fmt.Errorf("cannot inspect known_hosts: %w", err)
 		}
 		found, err := run(ctx, keygen, []string{"-F", target, "-f", file})
 		if err != nil {
@@ -206,8 +213,8 @@ func prepareKeys(ctx context.Context, d Device, ssh, keygen string, run ToolRunn
 		}
 		if found.Code == 0 && strings.TrimSpace(found.Stdout) != "" {
 			plan.Files = append(plan.Files, file)
-		} else if strings.TrimSpace(found.Stderr) != "" {
-			return plan, fmt.Errorf("cannot inspect known_hosts: %s", safe(found.Stderr))
+		} else if found.Code != 1 || strings.TrimSpace(found.Stderr) != "" {
+			return plan, fmt.Errorf("cannot inspect known_hosts (exit %d): %s", found.Code, safe(found.Stderr))
 		}
 	}
 	return plan, nil

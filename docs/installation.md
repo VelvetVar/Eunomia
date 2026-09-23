@@ -2,6 +2,8 @@
 
 [Back to README](../README.md)
 
+Get the [Windows ZIP](https://github.com/VelvetVar/Eunomia/raw/refs/heads/main/downloads/eunomia-windows.zip) or [Linux TAR.GZ](https://github.com/VelvetVar/Eunomia/raw/refs/heads/main/downloads/eunomia-linux.tar.gz), then follow the steps for your OS below.
+
 ## Requirements
 
 Use a UTF-8 terminal at least 64 columns wide and 24 rows tall. A 110 × 38 window gives the device list and logo more room.
@@ -71,6 +73,8 @@ sh ./setup.sh --no-path --skip-system --offline
 ```
 
 Offline setup needs SSH to be installed already. `sha256sum` or `shasum` is needed to verify the packaged executable. Missing ping support is reported by `eunomia doctor`.
+
+If you run offline setup from a source checkout, the Go toolchain and dependencies must already be available locally. Offline setup won't download them.
 
 ## macOS
 

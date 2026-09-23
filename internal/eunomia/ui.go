@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/gdamore/tcell/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/gdamore/tcell/v2"
 )
 
 type formState struct {
@@ -51,6 +53,7 @@ type App struct {
 	Store                Store
 	Devices, Filtered    []Device
 	Selected             int
+	searchCursor         int
 	Query, Mode, Message string
 	Error                bool
 	Form                 formState
@@ -73,6 +76,7 @@ type App struct {
 	keyPlan              *HostKeyPlan
 	paste                bool
 	pasteBuffer          strings.Builder
+	pasteSession         *Session
 	opener               func(Device, int, int, func(*Session)) (*Session, error)
 	openingWork          sync.WaitGroup
 	prepare              func(context.Context, Device) (HostKeyPlan, error)
@@ -234,27 +238,14 @@ func (a *App) Run() error {
 				}
 				a.Screen.Sync()
 			case *tcell.EventPaste:
-				if event.Start() {
-					a.paste = true
-					a.pasteBuffer.Reset()
-				} else {
-					a.paste = false
-					if s := a.active(); s != nil {
-						s.Paste(a.pasteBuffer.String())
-					}
-					a.pasteBuffer.Reset()
-				}
+				a.handlePaste(event.Start())
 			}
 			drawSoon()
 		case message := <-a.messages:
 			a.handleMessage(message)
 			drawSoon()
 		case s := <-a.wake:
-			s.mu.Lock()
-			mark := fmt.Sprint(s.Unread, s.Exited)
-			s.mu.Unlock()
-			if a.active() == s || a.sessionMarks[s] != mark {
-				a.sessionMarks[s] = mark
+			if a.sessionChanged(s) {
 				drawSoon()
 			}
 		case <-pingTimer.C:
@@ -271,6 +262,67 @@ func (a *App) Run() error {
 				dirty = false
 			}
 		}
+	}
+}
+func (a *App) sessionChanged(s *Session) bool {
+	// Output and exit notifications can arrive after a tab has been closed.
+	if !slices.Contains(a.Sessions, s) {
+		return false
+	}
+	s.mu.Lock()
+	mark := fmt.Sprint(s.Unread, s.Exited)
+	s.mu.Unlock()
+	changed := a.active() == s || a.sessionMarks[s] != mark
+	a.sessionMarks[s] = mark
+	return changed
+}
+
+func (a *App) handlePaste(start bool) {
+	if start {
+		a.paste = true
+		a.pasteSession = a.active()
+		a.pasteBuffer.Reset()
+		return
+	}
+	if !a.paste {
+		return
+	}
+	a.paste = false
+	text := a.pasteBuffer.String()
+	a.pasteBuffer.Reset()
+	session := a.pasteSession
+	a.pasteSession = nil
+	if a.Pending != nil || a.Busy {
+		return
+	}
+	if session != nil {
+		if slices.Contains(a.Sessions, session) {
+			session.Paste(text)
+		}
+		return
+	}
+	// Pasted newlines and tabs belong to the field, never to menu navigation or
+	// confirmation shortcuts. Ignore pastes when no text field is being edited.
+	if a.active() != nil {
+		return
+	}
+	for _, r := range text {
+		if r == '\r' || r == '\n' || r == '\t' {
+			r = ' '
+		}
+		event := tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone)
+		switch {
+		case a.View == -1 && a.Scan.Editing:
+			editText(&a.Scan.Input, &a.Scan.Cursor, event, 20)
+		case a.View == 0 && a.Mode == "form":
+			a.formKey(event)
+		case a.View == 0 && a.Mode == "search":
+			editText(&a.Query, &a.searchCursor, event, 100)
+		}
+	}
+	if a.View == 0 && a.Mode == "search" {
+		a.Filtered = Search(a.Devices, a.Query)
+		a.Selected = 0
 	}
 }
 func (a *App) startPing() {
@@ -430,7 +482,7 @@ func (a *App) handleMessage(message any) {
 }
 func (a *App) HandleKey(event *tcell.EventKey) {
 	key, r := event.Key(), event.Rune()
-	if a.paste && a.active() != nil {
+	if a.paste {
 		switch key {
 		case tcell.KeyRune:
 			a.pasteBuffer.WriteRune(r)
@@ -562,9 +614,7 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 		if key == tcell.KeyEnter {
 			a.Mode = "list"
 		} else {
-			chars := []rune(a.Query)
-			cursor := len(chars)
-			editText(&a.Query, &cursor, event, 100)
+			editText(&a.Query, &a.searchCursor, event, 100)
 			a.Filtered = Search(a.Devices, a.Query)
 			a.Selected = 0
 		}
@@ -596,6 +646,7 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 		a.Selected = max(0, a.Selected-1)
 	case r == '/':
 		a.Mode = "search"
+		a.searchCursor = len([]rune(a.Query))
 	case r == '?':
 		a.Mode = "help"
 	case r == 'r':

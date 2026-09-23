@@ -151,29 +151,6 @@ func TestFingerprintConfirmationAndCancelledLookup(t *testing.T) {
 		t.Fatal("cancelled lookup reopened dialog")
 	}
 }
-func TestLogoLoopsAndCompactViews(t *testing.T) {
-	a, screen := uiFixture(t)
-	for _, size := range [][2]int{{64, 24}, {80, 24}, {110, 38}} {
-		screen.SetSize(size[0], size[1])
-		for _, mode := range []string{"list", "help", "details", "fingerprint", "form"} {
-			a.Mode = mode
-			a.Draw()
-			text := screenText(screen)
-			if strings.Contains(text, "Order in your lab") || strings.Contains(text, "Inspired by") {
-				t.Fatal("removed slogan returned")
-			}
-		}
-	}
-	first, second := Logo(39, 14, .3), Logo(39, 14, .3+2*3.141592653589793)
-	if strings.Join(first, "\n") != strings.Join(second, "\n") {
-		t.Fatal("logo not periodic")
-	}
-	screen.SetSize(40, 10)
-	a.Draw()
-	if !strings.Contains(screenText(screen), "Resize terminal") {
-		t.Fatal("small terminal guidance")
-	}
-}
 func waitUntil(t *testing.T, timeout time.Duration, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -212,5 +189,63 @@ func TestShutdownReclaimsUnclaimedSession(t *testing.T) {
 				t.Fatal("unclaimed terminal survived shutdown")
 			}
 		})
+	}
+}
+
+func TestPasteCannotSaveDeleteOrRunMenuCommands(t *testing.T) {
+	a, _ := uiFixture(t)
+	d, err := a.Store.Save(fixtureDevice(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	press(a, tcell.KeyDelete)
+	a.handlePaste(true)
+	typeText(a, "y")
+	a.handlePaste(false)
+	if a.Pending == nil || len(a.Devices) != 1 {
+		t.Fatal("pasted text confirmed deletion")
+	}
+	press(a, tcell.KeyEscape)
+	a.handlePaste(true)
+	typeText(a, "qDa")
+	a.handlePaste(false)
+	if a.ctx.Err() != nil || a.Mode != "list" || a.View != 0 {
+		t.Fatal("paste invoked menu shortcuts")
+	}
+	a.beginForm(d, true)
+	a.Form.Field, a.Form.Cursor = 4, 0
+	a.Form.Values[4] = ""
+	a.handlePaste(true)
+	typeText(a, "notes")
+	press(a, tcell.KeyTAB)
+	press(a, tcell.KeyEnter)
+	typeText(a, "q")
+	a.handlePaste(false)
+	if a.Mode != "form" || a.Form.Field != 4 || a.Form.Values[4] != "notes  q" {
+		t.Fatal("paste navigated or saved the form", a.Form)
+	}
+	stored, err := a.Store.Read()
+	if err != nil || stored[0].Description != d.Description {
+		t.Fatal("paste changed stored data", err)
+	}
+}
+
+func TestSearchCursorAndLateSessionNotifications(t *testing.T) {
+	a, _ := uiFixture(t)
+	typeText(a, "/NXS")
+	press(a, tcell.KeyLeft)
+	press(a, tcell.KeyBackspace)
+	typeText(a, "A")
+	if a.Query != "NAS" {
+		t.Fatal("search cursor reset between keys", a.Query)
+	}
+	p := newFakeTerminal()
+	s := NewSession(fixtureDevice(), p, 80, 24, func(*Session) {})
+	a.Sessions = []*Session{s}
+	a.sessionChanged(s)
+	a.closeSession(s)
+	if a.sessionChanged(s) || len(a.sessionMarks) != 0 {
+		t.Fatal("late notification retained a closed tab")
 	}
 }

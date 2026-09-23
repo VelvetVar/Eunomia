@@ -3,6 +3,7 @@ node_modules/
 .test-data/
 *.tgz
 coverage/
+*.test
 dist/
 .tools/
 /eunomia.exe
@@ -11,6 +12,7 @@ dist/
 # Extracted release packages
 /eunomia-windows/
 /eunomia-linux/
+/downloads/bin/
 
 # Local profiles, runtime records, and credentials
 devices.json

@@ -5,6 +5,13 @@ A terminal app for keeping track of your homelab and connecting to it over SSH.
 
 Save a device once, give it a name, and open it from the list. Keep several SSH sessions running and switch between them without leaving the terminal. Eunomia is written in Go and runs on Windows, Linux, and macOS.
 
+| Download | Includes |
+| --- | --- |
+| [Windows ZIP](https://github.com/VelvetVar/Eunomia/raw/refs/heads/main/downloads/eunomia-windows.zip) | EXE files for x64 and ARM64, plus setup |
+| [Linux TAR.GZ](https://github.com/VelvetVar/Eunomia/raw/refs/heads/main/downloads/eunomia-linux.tar.gz) | Binaries for x64 and ARM64, plus setup |
+
+[SHA-256 checksums](https://github.com/VelvetVar/Eunomia/blob/main/downloads/SHA256SUMS.txt)
+
 ## What it does
 
 - Saves device names, addresses, SSH users, ports, and notes.

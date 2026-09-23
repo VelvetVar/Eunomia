@@ -52,6 +52,8 @@ A device needs a name, address, and default SSH user. Addresses can be IPv4, IPv
 
 Use `Tab`, `Shift+Tab`, or up/down arrows to change fields. Left/right arrows, Home, End, Backspace, and Delete edit the current field. `Ctrl+U` clears it. Press `Enter` to save or `Esc` to cancel.
 
+Pasting inserts text into the current field. Pasted tabs and line breaks become spaces; they won't move between fields, save a form, or confirm a deletion.
+
 Deleting a profile doesn't edit the remote device or remove its SSH fingerprint.
 
 ## SSH tabs
@@ -76,6 +78,8 @@ For a prefix shortcut, press `Ctrl+B`, release both keys, then press the next ke
 Use next/previous shortcuts to reach sessions beyond tab 9. Plain Tab, Ctrl+C, navigation keys, and typed text go to the remote session. Pasting is supported, including bracketed paste when the remote application enables it. Mouse input isn't forwarded.
 
 Tabs keep up to 2,000 scrollback lines in memory. `*` marks new output in a background tab; `!` marks a session that has exited. An exited tab keeps its last screen until you close it.
+
+If an SSH process stops accepting input, other tabs and the menu remain usable. Eunomia buffers up to about 1 MiB of pending input for that session, then disconnects it with an error if the buffer fills.
 
 Eunomia uses your system OpenSSH client. Authentication, SSH configuration, keys, and the SSH agent work through that client. Sessions aren't restored when Eunomia restarts. If you need remote work to survive a disconnect, run it inside a remote session manager such as tmux.
 

@@ -8,6 +8,11 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Run sh ./setup.sh on Linux or macOS.' }
+foreach ($directory in @($InstallRoot, $BinDir)) {
+    if ($directory -and ($directory -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)' -or $directory -match '[\r\n]')) {
+        throw 'Install and command directories must be absolute paths without newlines.'
+    }
+}
 $architecture = $env:PROCESSOR_ARCHITECTURE
 if ($env:PROCESSOR_ARCHITEW6432) { $architecture = $env:PROCESSOR_ARCHITEW6432 }
 $arch = switch ($architecture) { 'AMD64' { 'amd64' } 'ARM64' { 'arm64' } default { throw 'This package supports Windows x64 and ARM64.' } }
@@ -18,8 +23,19 @@ if (-not (Test-Path -LiteralPath $binary)) {
         $goCommand = Get-Command go -ErrorAction SilentlyContinue
         if (-not $goCommand) { throw 'Extract the complete release package, or install Go 1.26+ and run: go build -o eunomia.exe ./cmd/eunomia' }
         Push-Location $PSScriptRoot
-        try { & $goCommand.Source build -trimpath -o $binary ./cmd/eunomia; if ($LASTEXITCODE -ne 0) { throw 'Go build failed.' } }
-        finally { Pop-Location }
+        $savedGoEnvironment = @{}
+        try {
+            if ($Offline) {
+                foreach ($name in @('GOPROXY','GOSUMDB','GOTOOLCHAIN')) { $savedGoEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+                $env:GOPROXY = 'off'; $env:GOSUMDB = 'off'; $env:GOTOOLCHAIN = 'local'
+            }
+            & $goCommand.Source build -trimpath -o $binary ./cmd/eunomia
+            if ($LASTEXITCODE -ne 0) { throw 'Go build failed. Offline builds require a locally installed toolchain and cached dependencies.' }
+        }
+        finally {
+            foreach ($name in $savedGoEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $savedGoEnvironment[$name], 'Process') }
+            Pop-Location
+        }
     }
 }
 if (Test-Path -LiteralPath ($binary + '.sha256')) {

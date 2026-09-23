@@ -221,6 +221,7 @@ func Ping(ctx context.Context, d Device) Reachability {
 	ctx, cancel := context.WithTimeout(ctx, 3500*time.Millisecond)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, file, PingArgs(d.Host, runtime.GOOS)...)
+	cmd.WaitDelay = time.Second
 	quietCommand(cmd)
 	bytes, err := cmd.CombinedOutput()
 	text := strings.ToLower(string(bytes))

@@ -123,7 +123,7 @@ func (s Store) Read() ([]Device, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid stored device: %w; original file left untouched", err)
 		}
-		if d.ID == "" || safe(d.ID) != d.ID || ids[d.ID] || names[strings.ToLower(d.Name)] {
+		if d.ID == "" || safe(d.ID) != d.ID || ids[d.ID] || names[strings.ToLower(clean.Name)] {
 			return nil, errors.New("invalid or duplicate stored device; original file left untouched")
 		}
 		if _, err = time.Parse(time.RFC3339Nano, d.CreatedAt); err != nil {
@@ -133,7 +133,7 @@ func (s Store) Read() ([]Device, error) {
 			return nil, errors.New("invalid device update date")
 		}
 		ids[d.ID] = true
-		names[strings.ToLower(d.Name)] = true
+		names[strings.ToLower(clean.Name)] = true
 		data.Devices[i] = clean
 	}
 	return data.Devices, nil
