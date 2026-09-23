@@ -1,4 +1,5 @@
 # Eunomia
+<img width="800" height="482" alt="ezgif-51f2aadb11d73b21" src="https://github.com/user-attachments/assets/2c3ec917-5135-42dd-9db3-c09ad2d38584" />
 
 A terminal app for keeping track of your homelab and connecting to it over SSH.
 
