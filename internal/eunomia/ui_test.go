@@ -2,6 +2,8 @@ package eunomia
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"github.com/gdamore/tcell/v2"
 	"strings"
 	"testing"
@@ -313,4 +315,113 @@ func TestSearchCursorAndLateSessionNotifications(t *testing.T) {
 	if a.sessionChanged(s) || len(a.sessionMarks) != 0 {
 		t.Fatal("late notification retained a closed tab")
 	}
+}
+
+func rightClick(a *App) {
+	a.HandleMouse(tcell.NewEventMouse(5, 10, tcell.ButtonSecondary, tcell.ModNone))
+	a.HandleMouse(tcell.NewEventMouse(5, 10, tcell.ButtonNone, tcell.ModNone))
+}
+
+func TestRightClickPasteRoutingAndButtonRelease(t *testing.T) {
+	for _, bracketed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "plain", true: "bracketed"}[bracketed], func(t *testing.T) {
+			a, _ := uiFixture(t)
+			p, other := newFakeTerminal(), newFakeTerminal()
+			s := NewSession(fixtureDevice(), p, 110, 36, func(*Session) {})
+			tab := NewSession(fixtureDevice(), other, 110, 36, func(*Session) {})
+			a.Sessions, a.View = []*Session{s, tab}, 1
+			if bracketed {
+				s.mu.Lock()
+				fmt.Fprint(s.Term, "\x1b[?2004h")
+				s.mu.Unlock()
+			}
+			const text = " Dummy P@ss! é🔑 "
+			reads := 0
+			a.clipboard = func() (string, error) { reads++; return text, nil }
+			a.HandleMouse(tcell.NewEventMouse(5, 10, tcell.ButtonSecondary, tcell.ModNone))
+			a.HandleMouse(tcell.NewEventMouse(6, 10, tcell.ButtonSecondary, tcell.ModNone))
+			a.HandleMouse(tcell.NewEventMouse(6, 10, tcell.ButtonNone, tcell.ModNone))
+			want := text
+			if bracketed {
+				want = "\x1b[200~" + text + "\x1b[201~"
+			}
+			waitUntil(t, time.Second, func() bool { return p.inputText() == want })
+			if reads != 1 || other.inputText() != "" {
+				t.Fatal("right-click repeated or pasted into another tab", reads)
+			}
+			rightClick(a)
+			waitUntil(t, time.Second, func() bool { return p.inputText() == want+want })
+			if reads != 2 {
+				t.Fatal("second click did not paste")
+			}
+		})
+	}
+}
+
+func TestRightClickPasteFieldsAndGuards(t *testing.T) {
+	a, _ := uiFixture(t)
+	reads := 0
+	a.clipboard = func() (string, error) { reads++; return "q\r\n\ty", nil }
+	// Menus and dialogs must not even read the system clipboard.
+	rightClick(a)
+	a.beginForm(fixtureDevice(), false)
+	a.Form.Field, a.Form.Cursor, a.Form.Values[4] = 4, 0, ""
+	for _, guard := range []string{"busy", "pending", "prefix", "paste"} {
+		a.Busy, a.Prefix, a.paste = guard == "busy", guard == "prefix", guard == "paste"
+		if guard == "pending" {
+			a.Pending = &action{Kind: "delete"}
+		} else {
+			a.Pending = nil
+		}
+		rightClick(a)
+	}
+	a.Busy, a.Prefix, a.paste, a.Pending = false, false, false, nil
+	for _, position := range [][2]int{{0, 0}, {0, 37}, {-1, 10}, {110, 10}} {
+		a.HandleMouse(tcell.NewEventMouse(position[0], position[1], tcell.ButtonSecondary, tcell.ModNone))
+		a.HandleMouse(tcell.NewEventMouse(position[0], position[1], tcell.ButtonNone, tcell.ModNone))
+	}
+	if reads != 0 || a.Form.Values[4] != "" {
+		t.Fatal("clipboard read outside an editable area", reads)
+	}
+	rightClick(a)
+	if reads != 1 || a.Form.Values[4] != "q   y" || a.Form.Field != 4 || a.Mode != "form" || a.ctx.Err() != nil {
+		t.Fatal("right-click invoked shortcuts or changed fields", a.Form)
+	}
+	stored, err := a.Store.Read()
+	if err != nil || len(stored) != 0 {
+		t.Fatal("right-click saved a form", err)
+	}
+	a.Mode, a.Query, a.searchCursor = "search", "", 0
+	a.clipboard = func() (string, error) { return "NAS", nil }
+	rightClick(a)
+	if a.Query != "NAS" {
+		t.Fatal("right-click did not paste into search")
+	}
+	a.View, a.Scan.Editing = -1, true
+	a.clipboard = func() (string, error) { return "192.168.10.0/24", nil }
+	rightClick(a)
+	if a.Scan.Input != "192.168.10.0/24" || !a.Scan.Editing || a.Scan.Running {
+		t.Fatal("right-click submitted the subnet instead of editing it")
+	}
+}
+
+func TestRightClickClipboardFailureAndExitedSession(t *testing.T) {
+	a, screen := uiFixture(t)
+	p := newFakeTerminal()
+	s := NewSession(fixtureDevice(), p, 110, 36, func(*Session) {})
+	a.Sessions, a.View = []*Session{s}, 1
+	a.clipboard = func() (string, error) { return "ignored", errors.New("clipboard is busy") }
+	rightClick(a)
+	a.Draw()
+	if !strings.Contains(screenText(screen), "Cannot paste: clipboard is busy") || p.inputText() != "" {
+		t.Fatal("clipboard failure was hidden or pasted partial data")
+	}
+	a.clipboard = func() (string, error) { return "", nil }
+	rightClick(a)
+	if a.pasteError != "" || p.inputText() != "" {
+		t.Fatal("empty clipboard pasted data or left an old error")
+	}
+	s.Close()
+	a.clipboard = func() (string, error) { t.Fatal("read clipboard for an exited session"); return "", nil }
+	rightClick(a)
 }

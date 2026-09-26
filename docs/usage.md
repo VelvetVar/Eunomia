@@ -85,6 +85,8 @@ For a prefix shortcut, press `Ctrl+B`, release both keys, then press the next ke
 
 Use next/previous shortcuts to reach sessions beyond tab 9. Plain Tab, Ctrl+C, left/right arrows, and typed text go to the remote session. Pasting is supported, including bracketed paste when the remote application enables it.
 
+On Windows, right-click inside the session to paste clipboard text, including at password prompts. Right-click also pastes into the current device-form, search, or subnet field. It does nothing in menus or confirmation dialogs. Passwords stay hidden, and pasting does not add an Enter key; press Enter when ready. On Linux and macOS, use your terminal's paste shortcut.
+
 Use `↑` / `↓`, page keys, or the wheel to scroll immediately. Press `Esc` to return to live output. Typing or pasting also returns to live output and sends your input to the remote session. For shell command history, use `Alt+↑` / `Alt+↓`. These send plain arrow keys to the shell. Exited tabs can still be scrolled.
 
 Remote programs using the alternate screen, such as Vim and top, receive normal arrow and page keys, including their modifiers. The wheel is forwarded if the program enables mouse reporting; otherwise it has no effect there. Programs that stay on the main screen can receive arrow and page keys through the Alt shortcuts above.

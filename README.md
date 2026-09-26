@@ -88,6 +88,7 @@ eunomia down
 | `Ctrl+B`, then `x` | Close the current SSH tab |
 | `↑` / `↓`, `Page Up` / `Page Down` | Scroll SSH output directly; `Esc` returns to live output |
 | Mouse wheel | Scroll SSH output or move through Lab and Discover lists |
+| Right-click (Windows) | Paste clipboard text into SSH or the current input field |
 | `Alt+↑` / `Alt+↓` | Send arrow keys to the shell for command history |
 | `F7` | Switch between scrolling and selecting options in remote prompts |
 | `?` | Show the keyboard guide in Lab |

@@ -27,6 +27,9 @@ func TestDiagnosticPrivacyAndSessionExit(t *testing.T) {
 	press(a, tcell.KeyEnter)
 	s.Paste("DUMMY-pasted-secret")
 	waitUntil(t, time.Second, func() bool { return strings.Contains(p.inputText(), "DUMMY-pasted-secret") })
+	a.clipboard = func() (string, error) { return "DUMMY-clipboard-secret", nil }
+	rightClick(a)
+	waitUntil(t, time.Second, func() bool { return strings.Contains(p.inputText(), "DUMMY-clipboard-secret") })
 	if _, err := p.writer.Write([]byte("DUMMY-private-remote-output")); err != nil {
 		t.Fatal(err)
 	}

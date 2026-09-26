@@ -49,6 +49,8 @@ func TestPTYHelper(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Exercise the native mouse path without touching the user's clipboard.
+		a.clipboard = func() (string, error) { return "Dummy P@ss!#$%&*()_+-=42", nil }
 		s := NewSession(fixtureDevice(), helperTerminal(t, "password", 80, 22), 80, 22, a.notify)
 		a.Sessions, a.View = []*Session{s}, 1
 		if err := a.Run(); err != nil {
@@ -130,6 +132,7 @@ func TestNativeTUIPasswordInput(t *testing.T) {
 	for _, entry := range []struct{ name, input string }{
 		{"typed", "Dummy P@ss!#$%&*()_+-=42\r"},
 		{"paste", "\x1b[200~Dummy P@ss!#$%&*()_+-=42\x1b[201~\r"},
+		{"right-click", "\x1b[<2;6;5M\x1b[<2;6;5m\r"},
 		{"backspace", "Dummy P@ss!#$%&*()_+-=4x\x7f2\r"},
 	} {
 		t.Run(entry.name, func(t *testing.T) {

@@ -78,6 +78,9 @@ type App struct {
 	paste                bool
 	pasteBuffer          strings.Builder
 	pasteSession         *Session
+	clipboard            func() (string, error)
+	pasteError           string
+	mouseButtons         tcell.ButtonMask
 	opener               func(Device, int, int, func(*Session)) (*Session, error)
 	openingWork          sync.WaitGroup
 	prepare              func(context.Context, Device) (HostKeyPlan, error)
@@ -87,6 +90,7 @@ type App struct {
 func NewApp(screen tcell.Screen, store Store, animate bool) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{Screen: screen, Store: store, Mode: "list", Animate: animate, Angle: .35, Reach: map[string]Reachability{}, ctx: ctx, cancel: cancel, messages: make(chan any, 256), wake: make(chan *Session, 128), sessionMarks: map[*Session]string{}, opener: OpenSession, prepare: PrepareHostKeyReset, forget: ForgetHostKey}
+	a.clipboard = systemClipboard
 	diagnostics, logErr := NewDiagnostics(store.Directory)
 	a.Diagnostics = diagnostics
 	diagnostics.Started()
@@ -500,12 +504,19 @@ func (a *App) handleMessage(message any) {
 	}
 }
 func (a *App) HandleMouse(event *tcell.EventMouse) {
+	buttons := event.Buttons()
+	rightPress := buttons&tcell.ButtonSecondary != 0 && a.mouseButtons&tcell.ButtonSecondary == 0
+	a.mouseButtons = buttons
 	if a.paste || a.Busy || a.Pending != nil || a.Prefix {
 		return
 	}
 	x, y := event.Position()
 	w, h := a.Screen.Size()
 	if x < 0 || x >= w || y < 1 || y >= h-1 {
+		return
+	}
+	if rightPress {
+		a.pasteClipboard()
 		return
 	}
 	delta := 0
@@ -527,7 +538,41 @@ func (a *App) HandleMouse(event *tcell.EventMouse) {
 		}
 	}
 }
+func (a *App) pasteClipboard() {
+	if a.clipboard == nil {
+		return
+	}
+	if s := a.active(); s != nil {
+		s.mu.Lock()
+		inactive := s.Exited || s.closed
+		s.mu.Unlock()
+		if inactive {
+			return
+		}
+	} else {
+		w, h := a.Screen.Size()
+		editing := a.View == -1 && a.Scan.Editing || a.View == 0 && (a.Mode == "form" || a.Mode == "search")
+		if w < 64 || h < 24 || !editing {
+			return
+		}
+	}
+	text, err := a.clipboard()
+	a.pasteError = ""
+	if err != nil {
+		a.pasteError = "Cannot paste: " + safe(err.Error())
+		return
+	}
+	if text == "" {
+		return
+	}
+	// Reuse bracketed paste routing so clipboard text cannot invoke shortcuts,
+	// confirm dialogs, or save forms. Never log clipboard contents.
+	a.handlePaste(true)
+	a.pasteBuffer.WriteString(text)
+	a.handlePaste(false)
+}
 func (a *App) HandleKey(event *tcell.EventKey) {
+	a.pasteError = ""
 	key, r := event.Key(), event.Rune()
 	if a.paste {
 		switch key {

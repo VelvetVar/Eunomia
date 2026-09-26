@@ -104,6 +104,9 @@ func (a *App) prompt() string {
 	if a.Prefix {
 		return "Ctrl+B: n/p tabs  h Lab  D Discover  x close  0-9 select"
 	}
+	if a.pasteError != "" {
+		return a.pasteError
+	}
 	return ""
 }
 func (a *App) Draw() {
