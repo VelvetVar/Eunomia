@@ -87,6 +87,8 @@ Use next/previous shortcuts to reach sessions beyond tab 9. Plain Tab, Ctrl+C, l
 
 On Windows, right-click inside the session to paste clipboard text, including at password prompts. Right-click also pastes into the current device-form, search, or subnet field. It does nothing in menus or confirmation dialogs. Passwords stay hidden, and pasting does not add an Enter key; press Enter when ready. On Linux and macOS, use your terminal's paste shortcut.
 
+To copy SSH output, hold the left mouse button and drag across the text. Release to copy the highlighted text to the clipboard. This works in live output, scrollback, full-screen remote apps, and exited tabs. The visible content stays still while selected; incoming output continues in the background. Press `Esc`, type, scroll, or switch tabs to clear the selection. Right-click clears the selection and pastes on Windows. Plain `Ctrl+C` still goes to the remote program. On Linux and macOS, copying requires a terminal that allows clipboard writes.
+
 Use `↑` / `↓`, page keys, or the wheel to scroll immediately. Press `Esc` to return to live output. Typing or pasting also returns to live output and sends your input to the remote session. For shell command history, use `Alt+↑` / `Alt+↓`. These send plain arrow keys to the shell. Exited tabs can still be scrolled.
 
 Remote programs using the alternate screen, such as Vim and top, receive normal arrow and page keys, including their modifiers. The wheel is forwarded if the program enables mouse reporting; otherwise it has no effect there. Programs that stay on the main screen can receive arrow and page keys through the Alt shortcuts above.
@@ -95,7 +97,7 @@ For an installer or menu that asks you to choose an option with the arrows, pres
 
 Eunomia detects alternate-screen applications automatically. Prompts that stay on the main screen need `F7` because ordinary terminal output does not identify whether a program is waiting for an arrow-key selection. The Alt shortcuts send plain arrows and page keys only in `SCROLL` mode.
 
-The wheel also moves through Lab and Discover lists, three rows per notch. It needs a terminal that reports mouse events. Eunomia requests button and wheel events only, so moving the pointer doesn't trigger redraws. Mouse clicks and dragging aren't forwarded. Forms and confirmation dialogs ignore the wheel.
+The wheel also moves through Lab and Discover lists, three rows per notch. It needs a terminal that reports mouse events. Eunomia requests button, drag, and wheel events; moving the pointer without holding a button doesn't trigger redraws. Left-drag selects local SSH text instead of being forwarded to the remote program. Forms and confirmation dialogs ignore the wheel.
 
 Tabs keep up to 2,000 scrollback lines in memory. `*` marks new output in a background tab; `!` marks a session that has exited. An exited tab keeps its last screen until you close it.
 

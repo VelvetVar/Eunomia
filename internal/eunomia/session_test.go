@@ -113,6 +113,30 @@ func TestPTYHelper(t *testing.T) {
 			t.Fatal(err)
 		}
 		os.Exit(0)
+	case "copy-ui":
+		screen, err := tcell.NewScreen()
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, err := NewApp(screen, Store{ConfigDir()}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := NewSession(fixtureDevice(), newFakeTerminal(), 80, 22, func(*Session) {})
+		s.mu.Lock()
+		fmt.Fprint(s.Term, "COPY ME")
+		s.mu.Unlock()
+		a.Sessions, a.View = []*Session{s}, 1
+		a.writeClipboard = func(text string) error {
+			if text != "COPY ME" {
+				return fmt.Errorf("selection did not match the dummy text")
+			}
+			return nil
+		}
+		if err := a.Run(); err != nil {
+			t.Fatal(err)
+		}
+		os.Exit(0)
 	}
 }
 func helperTerminal(t *testing.T, mode string, w, h int) TerminalProcess {

@@ -79,6 +79,8 @@ type App struct {
 	pasteBuffer          strings.Builder
 	pasteSession         *Session
 	clipboard            func() (string, error)
+	writeClipboard       func(string) error
+	selection            *terminalSelection
 	pasteError           string
 	mouseButtons         tcell.ButtonMask
 	opener               func(Device, int, int, func(*Session)) (*Session, error)
@@ -91,6 +93,7 @@ func NewApp(screen tcell.Screen, store Store, animate bool) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{Screen: screen, Store: store, Mode: "list", Animate: animate, Angle: .35, Reach: map[string]Reachability{}, ctx: ctx, cancel: cancel, messages: make(chan any, 256), wake: make(chan *Session, 128), sessionMarks: map[*Session]string{}, opener: OpenSession, prepare: PrepareHostKeyReset, forget: ForgetHostKey}
 	a.clipboard = systemClipboard
+	a.writeClipboard = systemClipboardWriter
 	diagnostics, logErr := NewDiagnostics(store.Directory)
 	a.Diagnostics = diagnostics
 	diagnostics.Started()
@@ -165,6 +168,7 @@ func (a *App) setMessage(err error, text string) {
 func (a *App) Stop() { a.cancel() }
 func (a *App) Close() {
 	a.cancel()
+	a.selection = nil
 	a.openingWork.Wait()
 	// A connection may finish just as the event loop stops. Reclaim any queued
 	// session whose ownership was never transferred to the tabs.
@@ -199,8 +203,8 @@ func (a *App) Run() error {
 	defer a.Screen.Fini()
 	defer a.Close()
 	a.Screen.EnablePaste()
-	// Button reporting includes wheel impulses without high-volume motion events.
-	a.Screen.EnableMouse(tcell.MouseButtonEvents)
+	// Report motion only while dragging, plus button and wheel events.
+	a.Screen.EnableMouse(tcell.MouseDragEvents)
 	a.Screen.SetStyle(baseStyle)
 	a.Screen.Clear()
 	control, err := StartControl(a.Store.Directory, a.Stop)
@@ -255,6 +259,7 @@ func (a *App) Run() error {
 			case *tcell.EventMouse:
 				a.HandleMouse(event)
 			case *tcell.EventResize:
+				a.selection = nil
 				w, h := a.Screen.Size()
 				for _, s := range a.Sessions {
 					s.Resize(max(1, w), max(1, h-2))
@@ -302,6 +307,7 @@ func (a *App) sessionChanged(s *Session) bool {
 
 func (a *App) handlePaste(start bool) {
 	if start {
+		a.selection = nil
 		a.paste = true
 		a.pasteSession = a.active()
 		a.pasteBuffer.Reset()
@@ -392,6 +398,7 @@ func (a *App) startScan() {
 	go Scan(ctx, s.CIDR, s.Generation, nil, func(update ScanUpdate) { a.post(update) })
 }
 func (a *App) activate(view int) {
+	a.selection = nil
 	if a.Mode == "fingerprint" && a.Pending == nil {
 		a.Mode = "list"
 		a.keyGeneration++
@@ -415,6 +422,9 @@ func (a *App) cycle(direction int) {
 	a.activate(tabs[(index+direction+len(tabs))%len(tabs)])
 }
 func (a *App) closeSession(target *Session) {
+	if a.selection != nil && a.selection.session == target {
+		a.selection = nil
+	}
 	for i, s := range a.Sessions {
 		if s == target {
 			s.Close()
@@ -505,9 +515,14 @@ func (a *App) handleMessage(message any) {
 }
 func (a *App) HandleMouse(event *tcell.EventMouse) {
 	buttons := event.Buttons()
-	rightPress := buttons&tcell.ButtonSecondary != 0 && a.mouseButtons&tcell.ButtonSecondary == 0
+	previous := a.mouseButtons
+	rightPress := buttons&tcell.ButtonSecondary != 0 && previous&tcell.ButtonSecondary == 0
 	a.mouseButtons = buttons
 	if a.paste || a.Busy || a.Pending != nil || a.Prefix {
+		a.selection = nil
+		return
+	}
+	if a.selectionMouse(event, previous) {
 		return
 	}
 	x, y := event.Position()
@@ -516,6 +531,7 @@ func (a *App) HandleMouse(event *tcell.EventMouse) {
 		return
 	}
 	if rightPress {
+		a.selection = nil
 		a.pasteClipboard()
 		return
 	}
@@ -574,6 +590,12 @@ func (a *App) pasteClipboard() {
 func (a *App) HandleKey(event *tcell.EventKey) {
 	a.pasteError = ""
 	key, r := event.Key(), event.Rune()
+	if a.selection != nil {
+		a.selection = nil
+		if key == tcell.KeyEscape && event.Modifiers() == tcell.ModNone {
+			return
+		}
+	}
 	if a.paste {
 		switch key {
 		case tcell.KeyRune:

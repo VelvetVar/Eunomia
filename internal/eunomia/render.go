@@ -475,6 +475,11 @@ func (a *App) drawSession(s *Session, w, h int) {
 	}
 	a.put(0, 0, a.tabLabel(w), tealStyle, w)
 	prompt := a.prompt()
+	selection := a.selection
+	if selection != nil && (selection.session != s || selection.width != w || selection.height != h-2) {
+		a.selection = nil
+		selection = nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Unread = false
@@ -484,12 +489,9 @@ func (a *App) drawSession(s *Session, w, h int) {
 	}
 	for y := 0; y < h-2; y++ {
 		for x := 0; x < w; x++ {
-			var cell *uv.Cell
-			position := y - offset
-			if position < 0 {
-				cell = s.Term.ScrollbackCellAt(x, s.Term.ScrollbackLen()+position)
-			} else {
-				cell = s.Term.CellAt(x, position)
+			cell := sessionViewCell(s, x, y)
+			if selection != nil {
+				cell = &selection.cells[y*w+x]
 			}
 			style := cellStyle(&uv.Cell{})
 			text := " "
@@ -505,6 +507,10 @@ func (a *App) drawSession(s *Session, w, h int) {
 				if cell.Style.Attrs&uv.AttrConceal != 0 {
 					text = " "
 				}
+			}
+			if selection != nil && selection.contains(x, y) {
+				_, _, attrs := style.Decompose()
+				style = style.Reverse(attrs&tcell.AttrReverse == 0)
 			}
 			runes := []rune(text)
 			a.Screen.SetContent(x, y+1, runes[0], runes[1:], style)
@@ -528,11 +534,17 @@ func (a *App) drawSession(s *Session, w, h int) {
 	if s.Failure != "" {
 		footer = safe(s.Failure) + " | Ctrl+B then x to close"
 	}
+	if selection != nil {
+		footer = "Selecting text | release to copy | Esc cancels"
+		if !selection.dragging {
+			footer = selection.status + " | right-click paste | Esc clears selection"
+		}
+	}
 	if prompt != "" {
 		footer = prompt
 	}
 	a.put(0, h-1, footer, dimStyle, w)
-	if offset == 0 && prompt == "" && !s.Exited && s.CursorVisible {
+	if selection == nil && offset == 0 && prompt == "" && !s.Exited && s.CursorVisible {
 		cursor := s.Term.CursorPosition()
 		a.Screen.ShowCursor(min(w-1, cursor.X), min(h-2, cursor.Y+1))
 	}

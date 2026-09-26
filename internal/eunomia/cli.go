@@ -17,7 +17,7 @@ import (
 	"text/tabwriter"
 )
 
-var Version = "2.0.4"
+var Version = "2.0.5"
 
 const help = `EUNOMIA / Native Go homelab manager
 
@@ -44,6 +44,7 @@ SSH: arrows / PgUp,PgDn / mouse wheel scroll; Esc returns to live output
      Alt+Up/Down sends shell arrows; full-screen apps keep normal keys
      F7 toggles remote selection mode for prompts; wheel still scrolls
      Right-click pastes clipboard text on Windows, including passwords
+     Left-drag selects SSH output; release to copy; Esc clears selection
 Forms: Tab or arrows switch fields / Enter save / Esc cancel / Ctrl+U clear
 
 Devices persist in the same devices.json format as Eunomia 1.x.
