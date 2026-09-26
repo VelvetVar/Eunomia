@@ -181,6 +181,8 @@ func (a *App) Run() error {
 	defer a.Screen.Fini()
 	defer a.Close()
 	a.Screen.EnablePaste()
+	// Button reporting includes wheel impulses without high-volume motion events.
+	a.Screen.EnableMouse(tcell.MouseButtonEvents)
 	a.Screen.SetStyle(baseStyle)
 	a.Screen.Clear()
 	control, err := StartControl(a.Store.Directory, a.Stop)
@@ -231,6 +233,8 @@ func (a *App) Run() error {
 			switch event := event.(type) {
 			case *tcell.EventKey:
 				a.HandleKey(event)
+			case *tcell.EventMouse:
+				a.HandleMouse(event)
 			case *tcell.EventResize:
 				w, h := a.Screen.Size()
 				for _, s := range a.Sessions {
@@ -480,6 +484,34 @@ func (a *App) handleMessage(message any) {
 		a.setMessage(m.Err, "Forgot "+m.Target+". Reconnect to verify its new fingerprint.")
 	}
 }
+func (a *App) HandleMouse(event *tcell.EventMouse) {
+	if a.paste || a.Busy || a.Pending != nil || a.Prefix {
+		return
+	}
+	x, y := event.Position()
+	w, h := a.Screen.Size()
+	if x < 0 || x >= w || y < 1 || y >= h-1 {
+		return
+	}
+	delta := 0
+	switch event.Buttons() & (tcell.WheelUp | tcell.WheelDown) {
+	case tcell.WheelUp:
+		delta = -3
+	case tcell.WheelDown:
+		delta = 3
+	default:
+		return
+	}
+	if s := a.active(); s != nil {
+		s.ScrollWheel(event)
+	} else if w >= 64 && h >= 24 {
+		if a.View == -1 && !a.Scan.Editing {
+			a.Scan.Selected = max(0, min(len(a.Scan.Results)-1, a.Scan.Selected+delta))
+		} else if a.View == 0 && a.Mode == "list" {
+			a.Selected = max(0, min(len(a.Filtered)-1, a.Selected+delta))
+		}
+	}
+}
 func (a *App) HandleKey(event *tcell.EventKey) {
 	key, r := event.Key(), event.Rune()
 	if a.paste {
@@ -552,6 +584,14 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 					a.Pending = &action{Kind: "close", Session: s}
 				}
 			}
+		case key == tcell.KeyUp:
+			if s := a.active(); s != nil {
+				s.ScrollLines(1)
+			}
+		case key == tcell.KeyDown:
+			if s := a.active(); s != nil {
+				s.ScrollLines(-1)
+			}
 		case r == 'u' || key == tcell.KeyPgUp:
 			if s := a.active(); s != nil {
 				s.Scroll(1)
@@ -580,6 +620,10 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 		return
 	}
 	if s := a.active(); s != nil {
+		if key == tcell.KeyF7 && event.Modifiers() == tcell.ModNone {
+			s.ToggleRemoteKeys()
+			return
+		}
 		s.SendKey(event)
 		return
 	}

@@ -85,9 +85,13 @@ eunomia down
 | `Ctrl+B`, then `0`–`9` | `0` for Lab, `1`–`9` for SSH sessions |
 | `Ctrl+B`, then `D` | Open Discover from an SSH session |
 | `Ctrl+B`, then `x` | Close the current SSH tab |
+| `↑` / `↓`, `Page Up` / `Page Down` | Scroll SSH output directly; `Esc` returns to live output |
+| Mouse wheel | Scroll SSH output or move through Lab and Discover lists |
+| `Alt+↑` / `Alt+↓` | Send arrow keys to the shell for command history |
+| `F7` | Switch between scrolling and selecting options in remote prompts |
 | `?` | Show the keyboard guide in Lab |
 
-Inside an SSH session, plain `Tab` and `Ctrl+C` go to the remote program. Use the `Ctrl+B` prefix for Eunomia's controls. The [usage guide](docs/usage.md) covers all keys, discovery, and command-line options.
+Inside an SSH session, plain `Tab` and `Ctrl+C` go to the remote program. Full-screen remote apps keep normal arrow and page keys. Use `Ctrl+B` for tab controls; scrolling needs no prefix. The [usage guide](docs/usage.md) covers all keys, discovery, and command-line options.
 
 ## Where devices are saved
 

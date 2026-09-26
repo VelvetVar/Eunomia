@@ -21,6 +21,7 @@ type Session struct {
 	Failure       string
 	Unread        bool
 	Offset        int
+	RemoteKeys    bool // F7 sends navigation keys to prompts on the main screen.
 	CursorVisible bool
 	closed        bool
 	closeOnce     sync.Once
@@ -154,6 +155,38 @@ func (s *Session) Scroll(delta int) {
 		s.Offset = max(0, min(s.Term.ScrollbackLen(), s.Offset+delta*max(1, s.Term.Height()-2)))
 	}
 }
+func (s *Session) ScrollLines(delta int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.Term.IsAltScreen() {
+		s.Offset = max(0, min(s.Term.ScrollbackLen(), s.Offset+delta))
+	}
+}
+func (s *Session) ToggleRemoteKeys() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.RemoteKeys = !s.RemoteKeys
+	s.Offset = 0
+}
+func (s *Session) ScrollWheel(event *tcell.EventMouse) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	delta, button := 3, uv.MouseWheelUp
+	if event.Buttons()&tcell.WheelDown != 0 {
+		delta, button = -3, uv.MouseWheelDown
+	}
+	if !s.Term.IsAltScreen() {
+		s.Offset = max(0, min(s.Term.ScrollbackLen(), s.Offset+delta))
+	} else if !s.Exited {
+		// The tab bar occupies row zero. Only forward wheel events when the
+		// remote full-screen application has enabled mouse reporting.
+		x, y := event.Position()
+		s.Term.SendMouse(uv.MouseWheelEvent{X: x, Y: y - 1, Button: button, Mod: terminalModifiers(event.Modifiers())})
+	}
+}
 func (s *Session) SendLiteral(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -170,17 +203,21 @@ func (s *Session) Paste(text string) {
 		s.Term.Paste(text)
 	}
 }
-func terminalKey(event *tcell.EventKey) uv.KeyPressEvent {
+func terminalModifiers(modifiers tcell.ModMask) uv.KeyMod {
 	var mod uv.KeyMod
-	if event.Modifiers()&tcell.ModAlt != 0 {
+	if modifiers&tcell.ModAlt != 0 {
 		mod |= uv.ModAlt
 	}
-	if event.Modifiers()&tcell.ModCtrl != 0 {
+	if modifiers&tcell.ModCtrl != 0 {
 		mod |= uv.ModCtrl
 	}
-	if event.Modifiers()&tcell.ModShift != 0 {
+	if modifiers&tcell.ModShift != 0 {
 		mod |= uv.ModShift
 	}
+	return mod
+}
+func terminalKey(event *tcell.EventKey) uv.KeyPressEvent {
+	mod := terminalModifiers(event.Modifiers())
 	key := event.Key()
 	code := event.Rune()
 	switch key {
@@ -240,8 +277,85 @@ func terminalKey(event *tcell.EventKey) uv.KeyPressEvent {
 func (s *Session) SendKey(event *tcell.EventKey) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.closed && !s.Exited {
-		s.Offset = 0
-		s.Term.SendKey(terminalKey(event))
+	if s.closed {
+		return
 	}
+	if !s.Term.IsAltScreen() && event.Modifiers() == tcell.ModNone {
+		if event.Key() == tcell.KeyEscape && (s.Offset > 0 || s.Exited) {
+			s.Offset = 0
+			return
+		}
+	}
+	if !s.Term.IsAltScreen() && (!s.RemoteKeys || s.Exited) && event.Modifiers() == tcell.ModNone {
+		delta := 0
+		switch event.Key() {
+		case tcell.KeyUp:
+			delta = 1
+		case tcell.KeyDown:
+			delta = -1
+		case tcell.KeyPgUp:
+			delta = max(1, s.Term.Height()-2)
+		case tcell.KeyPgDn:
+			delta = -max(1, s.Term.Height()-2)
+		}
+		if delta != 0 {
+			s.Offset = max(0, min(s.Term.ScrollbackLen(), s.Offset+delta))
+			return
+		}
+	}
+	if !s.Exited {
+		s.Offset = 0
+		// Alt sends an unmodified navigation key to shells and programs that
+		// use the main screen. Full-screen applications keep every modifier.
+		if !s.Term.IsAltScreen() && !s.RemoteKeys && event.Modifiers() == tcell.ModAlt {
+			switch event.Key() {
+			case tcell.KeyUp, tcell.KeyDown, tcell.KeyPgUp, tcell.KeyPgDn:
+				event = tcell.NewEventKey(event.Key(), 0, tcell.ModNone)
+			}
+		}
+		s.sendRemoteKey(event)
+	}
+}
+
+// vt handles plain keys and application cursor mode, but does not encode
+// modified navigation keys. Use their standard xterm sequences here.
+// The caller holds s.mu.
+func (s *Session) sendRemoteKey(event *tcell.EventKey) {
+	mod := event.Modifiers() & (tcell.ModShift | tcell.ModAlt | tcell.ModCtrl)
+	if mod != 0 {
+		parameter := 1
+		if mod&tcell.ModShift != 0 {
+			parameter += 1
+		}
+		if mod&tcell.ModAlt != 0 {
+			parameter += 2
+		}
+		if mod&tcell.ModCtrl != 0 {
+			parameter += 4
+		}
+		code, suffix := 1, byte(0)
+		switch event.Key() {
+		case tcell.KeyUp:
+			suffix = 'A'
+		case tcell.KeyDown:
+			suffix = 'B'
+		case tcell.KeyRight:
+			suffix = 'C'
+		case tcell.KeyLeft:
+			suffix = 'D'
+		case tcell.KeyHome:
+			suffix = 'H'
+		case tcell.KeyEnd:
+			suffix = 'F'
+		case tcell.KeyPgUp:
+			code, suffix = 5, '~'
+		case tcell.KeyPgDn:
+			code, suffix = 6, '~'
+		}
+		if suffix != 0 {
+			fmt.Fprintf(s.Term.InputPipe(), "\x1b[%d;%d%c", code, parameter, suffix)
+			return
+		}
+	}
+	s.Term.SendKey(terminalKey(event))
 }

@@ -28,6 +28,62 @@ func TestPTYHelper(t *testing.T) {
 		os.Exit(0)
 	case "ui":
 		os.Exit(Main([]string{"up", "--no-animation"}, os.Stdout, os.Stderr))
+	case "menu":
+		state, err := term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer term.Restore(int(os.Stdin.Fd()), state)
+		for i := 0; i < 80; i++ {
+			fmt.Printf("history %02d\r\n", i)
+		}
+		choices := []string{"First option", "Second option", "Third option"}
+		selected := 0
+		reader := bufio.NewReader(os.Stdin)
+		for {
+			fmt.Printf("\r\x1b[2KChoose: %s", choices[selected])
+			b, err := reader.ReadByte()
+			if err != nil {
+				return
+			}
+			if b == '\r' {
+				fmt.Printf("\r\nConfirmed: %s\r\n", choices[selected])
+				continue
+			}
+			if b != '\x1b' {
+				continue
+			}
+			sequence := make([]byte, 2)
+			if _, err := io.ReadFull(reader, sequence); err != nil {
+				return
+			}
+			switch string(sequence) {
+			case "[A":
+				selected = max(0, selected-1)
+			case "[B":
+				selected = min(len(choices)-1, selected+1)
+			}
+		}
+	case "scroll-ui":
+		screen, err := tcell.NewScreen()
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, err := NewApp(screen, Store{ConfigDir()}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := NewSession(fixtureDevice(), newFakeTerminal(), 80, 22, func(*Session) {})
+		s.mu.Lock()
+		for i := 0; i < 80; i++ {
+			fmt.Fprintf(s.Term, "line %02d\r\n", i)
+		}
+		s.mu.Unlock()
+		a.Sessions, a.View = []*Session{s}, 1
+		if err := a.Run(); err != nil {
+			t.Fatal(err)
+		}
+		os.Exit(0)
 	}
 }
 func helperTerminal(t *testing.T, mode string, w, h int) TerminalProcess {
@@ -259,4 +315,240 @@ func TestSSHPastePreservesBytesAndHandlesShortWrites(t *testing.T) {
 	a.handlePaste(false)
 	want := "\x1b[200~line one\nline two\x1b[201~"
 	waitUntil(t, time.Second, func() bool { return p.inputText() == want })
+}
+
+func TestSSHArrowScrollback(t *testing.T) {
+	for _, size := range [][2]int{{64, 24}, {110, 38}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			a, screen := uiFixture(t)
+			screen.SetSize(size[0], size[1])
+			p := newFakeTerminal()
+			s := NewSession(fixtureDevice(), p, size[0], size[1]-2, func(*Session) {})
+			a.Sessions, a.View = []*Session{s}, 1
+			s.mu.Lock()
+			for i := 0; i < 80; i++ {
+				fmt.Fprintf(s.Term, "line %02d\r\n", i)
+			}
+			s.mu.Unlock()
+			offset := func() int { s.mu.Lock(); defer s.mu.Unlock(); return s.Offset }
+			a.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModAlt))
+			a.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModAlt))
+			waitUntil(t, time.Second, func() bool { return p.inputText() == "\x1b[A\x1b[B" })
+			press(a, tcell.KeyUp)
+			press(a, tcell.KeyUp)
+			if offset() != 2 {
+				t.Fatal("arrows did not scroll by line", offset())
+			}
+			a.Draw()
+			if !strings.Contains(screenText(screen), "Scrollback -2") || !strings.Contains(screenText(screen), "line 78") || strings.Contains(screenText(screen), "line 79") {
+				t.Fatal("scrollback viewport", screenText(screen))
+			}
+			press(a, tcell.KeyDown)
+			if offset() != 1 {
+				t.Fatal("down did not scroll toward live output")
+			}
+			press(a, tcell.KeyEscape)
+			if offset() != 0 {
+				t.Fatal("escape did not restore live output")
+			}
+			press(a, tcell.KeyPgUp)
+			if offset() != size[1]-4 {
+				t.Fatal("direct page up failed", offset())
+			}
+			for i := 0; i < 100; i++ {
+				press(a, tcell.KeyUp)
+			}
+			s.mu.Lock()
+			atTop := s.Offset == s.Term.ScrollbackLen()
+			s.mu.Unlock()
+			if !atTop {
+				t.Fatal("scrolling did not stop at oldest line")
+			}
+			press(a, tcell.KeyEscape)
+			press(a, tcell.KeyPgDn)
+			if offset() != 0 {
+				t.Fatal("page down moved below live output")
+			}
+			// Keep the old prefix shortcuts working as well.
+			press(a, tcell.KeyCtrlB)
+			press(a, tcell.KeyUp)
+			press(a, tcell.KeyDown)
+			if offset() != 0 {
+				t.Fatal("down did not reach live output")
+			}
+			typeText(a, "z")
+			waitUntil(t, time.Second, func() bool { return p.inputText() == "\x1b[A\x1b[Bz" })
+			s.mu.Lock()
+			s.Term.Write([]byte("\x1b[?1049h"))
+			s.mu.Unlock()
+			press(a, tcell.KeyCtrlB)
+			press(a, tcell.KeyUp)
+			press(a, tcell.KeyUp)
+			waitUntil(t, time.Second, func() bool { return p.inputText() == "\x1b[A\x1b[Bz\x1b[A" })
+			if offset() != 0 {
+				t.Fatal("alternate screen scrolled local history")
+			}
+			s.mu.Lock()
+			s.Term.Write([]byte("\x1b[?1049l"))
+			s.Exited = true
+			s.RemoteKeys = true
+			s.mu.Unlock()
+			press(a, tcell.KeyUp)
+			if offset() != 1 {
+				t.Fatal("exited tab did not scroll")
+			}
+		})
+	}
+}
+
+func TestSSHMouseWheel(t *testing.T) {
+	a, _ := uiFixture(t)
+	p := newFakeTerminal()
+	s := NewSession(fixtureDevice(), p, 110, 36, func(*Session) {})
+	a.Sessions, a.View = []*Session{s}, 1
+	s.mu.Lock()
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(s.Term, "line %02d\r\n", i)
+	}
+	s.mu.Unlock()
+	offset := func() int { s.mu.Lock(); defer s.mu.Unlock(); return s.Offset }
+	wheel := func(button tcell.ButtonMask) { a.HandleMouse(tcell.NewEventMouse(5, 4, button, tcell.ModNone)) }
+	wheel(tcell.WheelUp)
+	if offset() != 3 {
+		t.Fatal("wheel did not enter scrollback", offset())
+	}
+	wheel(tcell.WheelUp)
+	wheel(tcell.WheelDown)
+	if offset() != 3 {
+		t.Fatal("wheel direction", offset())
+	}
+	for i := 0; i < 100; i++ {
+		wheel(tcell.WheelUp)
+	}
+	s.mu.Lock()
+	atTop := s.Offset == s.Term.ScrollbackLen()
+	s.mu.Unlock()
+	if !atTop {
+		t.Fatal("wheel did not clamp at top")
+	}
+	for i := 0; i < 100; i++ {
+		wheel(tcell.WheelDown)
+	}
+	if offset() != 0 || p.inputText() != "" {
+		t.Fatal("wheel leaked into shell or moved below bottom", offset(), p.inputText())
+	}
+	// Full-screen programs receive wheel events only when they request them.
+	s.mu.Lock()
+	s.Term.Write([]byte("\x1b[?1049h"))
+	s.mu.Unlock()
+	wheel(tcell.WheelUp)
+	s.mu.Lock()
+	s.Term.Write([]byte("\x1b[?1000h\x1b[?1006h"))
+	s.mu.Unlock()
+	wheel(tcell.WheelUp)
+	wheel(tcell.WheelDown)
+	press(a, tcell.KeyUp)
+	press(a, tcell.KeyDown)
+	press(a, tcell.KeyPgUp)
+	press(a, tcell.KeyPgDn)
+	a.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModAlt))
+	a.HandleKey(tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModCtrl|tcell.ModShift))
+	waitUntil(t, time.Second, func() bool {
+		return p.inputText() == "\x1b[<64;6;4M\x1b[<65;6;4M\x1b[A\x1b[B\x1b[5~\x1b[6~\x1b[1;3A\x1b[6;6~"
+	})
+	if offset() != 0 {
+		t.Fatal("wheel scrolled main history from alternate screen")
+	}
+}
+
+func TestSelectionModeKeysAndTabIsolation(t *testing.T) {
+	a, _ := uiFixture(t)
+	p, other := newFakeTerminal(), newFakeTerminal()
+	s := NewSession(fixtureDevice(), p, 110, 36, func(*Session) {})
+	tab := NewSession(fixtureDevice(), other, 110, 36, func(*Session) {})
+	a.Sessions, a.View = []*Session{s, tab}, 1
+	press(a, tcell.KeyF7)
+	press(a, tcell.KeyPgUp)
+	press(a, tcell.KeyPgDn)
+	a.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModAlt))
+	a.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModShift))
+	press(a, tcell.KeyEscape)
+	waitUntil(t, time.Second, func() bool { return p.inputText() == "\x1b[5~\x1b[6~\x1b[1;3A\x1b[1;2B\x1b" })
+	press(a, tcell.KeyCtrlB)
+	typeText(a, "2")
+	press(a, tcell.KeyUp)
+	typeText(a, "z")
+	waitUntil(t, time.Second, func() bool { return other.inputText() == "z" })
+	press(a, tcell.KeyCtrlB)
+	typeText(a, "1")
+	press(a, tcell.KeyDown)
+	waitUntil(t, time.Second, func() bool { return strings.HasSuffix(p.inputText(), "\x1b[B") })
+}
+
+func TestNativeTUIScrolling(t *testing.T) {
+	t.Setenv("EUNOMIA_HOME", t.TempDir())
+	s := NewSession(fixtureDevice(), helperTerminal(t, "scroll-ui", 80, 24), 80, 24, func(*Session) {})
+	defer s.Close()
+	text := func() string { s.mu.Lock(); defer s.mu.Unlock(); return s.Term.String() }
+	waitUntil(t, 8*time.Second, func() bool { return strings.Contains(text(), "line 79") })
+	s.SendLiteral("\x1b[A")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "Scrollback -1 |") })
+	s.SendLiteral("\x1b[<64;6;5M")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "Scrollback -4 |") })
+	s.SendLiteral("\x1b[<65;6;5M")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "Scrollback -1 |") })
+	s.SendLiteral("\x1b[6~")
+	waitUntil(t, 3*time.Second, func() bool { return !strings.Contains(text(), "Scrollback -") && strings.Contains(text(), "line 79") })
+	if stopped, err := StopRunning(ConfigDir()); !stopped || err != nil {
+		t.Fatal(stopped, err)
+	}
+}
+
+func TestNativeArrowSelectionPrompt(t *testing.T) {
+	a, screen := uiFixture(t)
+	s := NewSession(fixtureDevice(), helperTerminal(t, "menu", 110, 36), 110, 36, func(*Session) {})
+	a.Sessions, a.View = []*Session{s}, 1
+	text := func() string { s.mu.Lock(); defer s.mu.Unlock(); return s.Term.String() }
+	offset := func() int { s.mu.Lock(); defer s.mu.Unlock(); return s.Offset }
+	waitUntil(t, 5*time.Second, func() bool { return strings.Contains(text(), "Choose: First option") })
+	press(a, tcell.KeyUp)
+	if offset() != 1 {
+		t.Fatal("main-screen prompt prevented scrolling")
+	}
+	press(a, tcell.KeyF7)
+	a.Draw()
+	if offset() != 0 || !strings.Contains(screenText(screen), "SELECT: ↑/↓ remote options") {
+		t.Fatal("selection mode was not visible", screenText(screen))
+	}
+	press(a, tcell.KeyDown)
+	waitUntil(t, time.Second, func() bool { return strings.Contains(text(), "Choose: Second option") })
+	a.HandleMouse(tcell.NewEventMouse(5, 10, tcell.WheelUp, tcell.ModNone))
+	a.Draw()
+	if offset() != 3 || !strings.Contains(screenText(screen), "SELECT: ↑/↓ remote") {
+		t.Fatal("cannot scroll while selecting", screenText(screen))
+	}
+	press(a, tcell.KeyDown)
+	waitUntil(t, time.Second, func() bool { return strings.Contains(text(), "Choose: Third option") })
+	if offset() != 0 {
+		t.Fatal("remote selection did not restore live prompt")
+	}
+	press(a, tcell.KeyUp)
+	waitUntil(t, time.Second, func() bool { return strings.Contains(text(), "Choose: Second option") })
+	press(a, tcell.KeyEnter)
+	waitUntil(t, time.Second, func() bool { return strings.Contains(text(), "Confirmed: Second option") })
+	press(a, tcell.KeyF7)
+	press(a, tcell.KeyUp)
+	if offset() != 1 {
+		t.Fatal("could not return to arrow scrolling")
+	}
+	// A confirmation overlay must block mode changes and wheel input.
+	a.Pending = &action{Kind: "close", Session: s}
+	press(a, tcell.KeyF7)
+	a.HandleMouse(tcell.NewEventMouse(5, 10, tcell.WheelUp, tcell.ModNone))
+	s.mu.Lock()
+	remote := s.RemoteKeys
+	s.mu.Unlock()
+	if remote || offset() != 1 || a.Pending == nil {
+		t.Fatal("confirmation did not block navigation")
+	}
 }

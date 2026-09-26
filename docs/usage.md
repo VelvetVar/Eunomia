@@ -71,11 +71,29 @@ For a prefix shortcut, press `Ctrl+B`, release both keys, then press the next ke
 | `Ctrl+B`, then `1`–`9` | Select an SSH tab by number |
 | `Ctrl+B`, then `D` or `d` | Open Discover |
 | `Ctrl+B`, then `x` | Close the current SSH tab |
+| `↑` / `↓` | Scroll SSH output one line, without a prefix |
+| `Page Up` / `Page Down` | Scroll SSH output one page, without a prefix |
+| Mouse wheel | Scroll SSH output three lines per notch |
+| `Esc` | Return from scrollback to live output |
+| `Alt+↑` / `Alt+↓` | Send plain arrows to the remote shell (command history) |
+| `Alt+Page Up` / `Alt+Page Down` | Send plain page keys to the remote program |
+| `F7` | Toggle remote selection mode for this SSH tab |
+| `Ctrl+B`, then `↑` / `↓` | Scroll terminal history one line |
 | `Ctrl+B`, then `Page Up` / `Page Down` | Scroll through terminal history |
 | `Ctrl+B`, then `u` | Scroll up |
 | `Ctrl+B`, then `b` or `Ctrl+B` | Send Ctrl+B to the remote program |
 
-Use next/previous shortcuts to reach sessions beyond tab 9. Plain Tab, Ctrl+C, navigation keys, and typed text go to the remote session. Pasting is supported, including bracketed paste when the remote application enables it. Mouse input isn't forwarded.
+Use next/previous shortcuts to reach sessions beyond tab 9. Plain Tab, Ctrl+C, left/right arrows, and typed text go to the remote session. Pasting is supported, including bracketed paste when the remote application enables it.
+
+Use `↑` / `↓`, page keys, or the wheel to scroll immediately. Press `Esc` to return to live output. Typing or pasting also returns to live output and sends your input to the remote session. For shell command history, use `Alt+↑` / `Alt+↓`. These send plain arrow keys to the shell. Exited tabs can still be scrolled.
+
+Remote programs using the alternate screen, such as Vim and top, receive normal arrow and page keys, including their modifiers. The wheel is forwarded if the program enables mouse reporting; otherwise it has no effect there. Programs that stay on the main screen can receive arrow and page keys through the Alt shortcuts above.
+
+For an installer or menu that asks you to choose an option with the arrows, press `F7`. The footer shows `SELECT: ↑/↓ remote options`. Arrow and page keys now go to the remote program, with their modifiers intact, while the wheel still scrolls Eunomia's history. After scrolling, an arrow key returns to the live prompt and changes the selection; `Esc` returns to live output without changing it. `Enter` confirms the remote choice as usual. Press `F7` again to restore `SCROLL` mode. Each tab keeps its own mode until it is closed.
+
+Eunomia detects alternate-screen applications automatically. Prompts that stay on the main screen need `F7` because ordinary terminal output does not identify whether a program is waiting for an arrow-key selection. The Alt shortcuts send plain arrows and page keys only in `SCROLL` mode.
+
+The wheel also moves through Lab and Discover lists, three rows per notch. It needs a terminal that reports mouse events. Eunomia requests button and wheel events only, so moving the pointer doesn't trigger redraws. Mouse clicks and dragging aren't forwarded. Forms and confirmation dialogs ignore the wheel.
 
 Tabs keep up to 2,000 scrollback lines in memory. `*` marks new output in a background tab; `!` marks a session that has exited. An exited tab keeps its last screen until you close it.
 

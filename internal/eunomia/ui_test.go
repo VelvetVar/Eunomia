@@ -46,6 +46,71 @@ func screenText(screen tcell.SimulationScreen) string {
 	}
 	return b.String()
 }
+
+func TestMouseWheelListsAndDialogs(t *testing.T) {
+	a, _ := uiFixture(t)
+	a.Filtered = make([]Device, 8)
+	a.Scan.Results = make([]Found, 8)
+	wheel := func(button tcell.ButtonMask) { a.HandleMouse(tcell.NewEventMouse(5, 10, button, tcell.ModNone)) }
+	wheel(tcell.WheelDown)
+	if a.Selected != 3 {
+		t.Fatal("Lab wheel navigation", a.Selected)
+	}
+	for i := 0; i < 4; i++ {
+		wheel(tcell.WheelDown)
+	}
+	if a.Selected != 7 {
+		t.Fatal("Lab boundary", a.Selected)
+	}
+	for _, mode := range []string{"form", "search", "details", "help", "fingerprint"} {
+		a.Mode = mode
+		wheel(tcell.WheelUp)
+		if a.Selected != 7 {
+			t.Fatal("wheel changed selection in", mode)
+		}
+	}
+	a.Mode = "list"
+	for _, guard := range []string{"busy", "pending", "paste", "prefix"} {
+		a.Busy = guard == "busy"
+		a.paste = guard == "paste"
+		a.Prefix = guard == "prefix"
+		if guard == "pending" {
+			a.Pending = &action{Kind: "delete"}
+		} else {
+			a.Pending = nil
+		}
+		wheel(tcell.WheelUp)
+		if a.Selected != 7 {
+			t.Fatal("wheel bypassed", guard)
+		}
+	}
+	a.Busy, a.paste, a.Prefix, a.Pending = false, false, false, nil
+	for _, position := range [][2]int{{0, 0}, {0, 37}, {-1, 10}, {110, 10}} {
+		a.HandleMouse(tcell.NewEventMouse(position[0], position[1], tcell.WheelUp, tcell.ModNone))
+	}
+	wheel(tcell.Button1)
+	if a.Selected != 7 {
+		t.Fatal("non-content mouse events changed selection")
+	}
+	a.View = -1
+	wheel(tcell.WheelDown)
+	if a.Scan.Selected != 3 {
+		t.Fatal("Discover wheel navigation", a.Scan.Selected)
+	}
+	a.Scan.Editing = true
+	wheel(tcell.WheelUp)
+	if a.Scan.Selected != 3 {
+		t.Fatal("wheel changed selection while editing a subnet")
+	}
+	a.Scan.Editing = false
+	a.Scan.Results = nil
+	wheel(tcell.WheelDown)
+	a.View, a.Filtered = 0, nil
+	wheel(tcell.WheelDown)
+	if a.Selected != 0 || a.Scan.Selected != 0 {
+		t.Fatal("empty lists produced invalid selection")
+	}
+}
 func TestTUIFormsSearchDetailsAndDelete(t *testing.T) {
 	a, screen := uiFixture(t)
 	a.Draw()

@@ -16,7 +16,7 @@ import (
 	"text/tabwriter"
 )
 
-var Version = "2.0.1"
+var Version = "2.0.2"
 
 const help = `EUNOMIA / Native Go homelab manager
 
@@ -37,7 +37,10 @@ Usage:
 Lab: a add / e edit / Delete remove / f forget fingerprint / D Discover
      arrows or j,k select / Enter SSH / p ping / r reload / m motion / q quit
 Tabs: Ctrl+B then n/p, h or 0 Lab, D Discover, 0-9 select, x close
-      F6 / Shift+F6 switch; Ctrl+B then PgUp/PgDn scroll; b sends Ctrl+B
+      F6 / Shift+F6 switch; Ctrl+B then b sends Ctrl+B
+SSH: arrows / PgUp,PgDn / mouse wheel scroll; Esc returns to live output
+     Alt+Up/Down sends shell arrows; full-screen apps keep normal keys
+     F7 toggles remote selection mode for prompts; wheel still scrolls
 Forms: Tab or arrows switch fields / Enter save / Esc cancel / Ctrl+U clear
 
 Devices persist in the same devices.json format as Eunomia 1.x.

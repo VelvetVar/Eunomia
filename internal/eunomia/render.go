@@ -102,7 +102,7 @@ func (a *App) prompt() string {
 		}
 	}
 	if a.Prefix {
-		return "Ctrl+B: n/p tabs  h lab  D discover  x close  0-9 select"
+		return "Ctrl+B: n/p tabs  h Lab  D Discover  x close  0-9 select"
 	}
 	return ""
 }
@@ -149,7 +149,7 @@ func (a *App) drawLab(w, h int) {
 	if h >= 34 {
 		hero = 14
 	}
-	if a.Mode == "fingerprint" || (h < 34 && a.Mode != "list" && a.Mode != "search") {
+	if a.Mode == "fingerprint" || a.Mode == "help" || (h < 34 && a.Mode != "list" && a.Mode != "search") {
 		hero = 0
 	}
 	logoWidth := 26
@@ -184,7 +184,20 @@ func (a *App) drawLab(w, h int) {
 	switch a.Mode {
 	case "help":
 		a.put(3, top+1, "KEYBOARD GUIDE", tealStyle, w-6)
-		lines := []string{"↑ ↓ / j k select         Enter connect / resume SSH", "a add / e edit          Delete remove (confirmation)", "f forget fingerprint    D discover port 22", "/ search / r reload     p ping now (auto every 60s)", "m animation             q quit from the directory", "Forms: Tab / ↑ ↓ fields; ← → cursor; Enter save; Esc cancel", "Ctrl+B then n/p or F6 / Shift+F6: switch tabs", "Ctrl+B then h/0: Lab; D: Discover; 1–9: SSH sessions", "Ctrl+B then x: close; PgUp/PgDn: scroll; b: send Ctrl+B", "SSH: Tab and Ctrl+C are forwarded to the remote shell"}
+		lines := []string{
+			"↑ ↓ / j k select         Enter connect / resume SSH",
+			"a add / e edit          Delete remove (confirmation)",
+			"f forget fingerprint    D discover port 22",
+			"/ search / r reload     p ping now (auto every 60s)",
+			"m animation             q quit from the directory",
+			"Forms: Tab / ↑ ↓ fields; ← → cursor; Enter save; Esc cancel",
+			"Ctrl+B then n/p or F6 / Shift+F6: switch tabs",
+			"Ctrl+B then h/0: Lab; D: Discover; 1–9: SSH sessions",
+			"Ctrl+B then x: close; b: send Ctrl+B",
+			"SSH: ↑/↓, PgUp/PgDn or wheel scroll; Esc returns live",
+			"F7: toggle remote option selection; wheel still scrolls",
+			"Alt+↑/↓: shell history; full-screen apps keep normal keys",
+		}
 		for i, line := range lines {
 			if top+3+i < h-3 {
 				a.put(3, top+3+i, line, baseStyle, w-6)
@@ -494,11 +507,20 @@ func (a *App) drawSession(s *Session, w, h int) {
 			a.Screen.SetContent(x, y+1, runes[0], runes[1:], style)
 		}
 	}
-	footer := "Ctrl+B: n/p tabs | h Lab | D Discover | x close | PgUp/PgDn"
+	footer := "SCROLL: ↑/↓ / wheel | F7 select mode | Alt+↑/↓ shell | Ctrl+B tabs"
+	if s.RemoteKeys {
+		footer = "SELECT: ↑/↓ remote options | wheel scroll | F7 scroll mode | Ctrl+B tabs"
+	}
+	if s.Term.IsAltScreen() {
+		footer = "REMOTE APP: arrows select | Ctrl+B: n/p tabs | h Lab | x close"
+	}
 	if s.Exited {
-		footer = fmt.Sprintf("Exited %d | %s", s.ExitCode, footer)
+		footer = fmt.Sprintf("Exited %d | ↑/↓ scroll | Esc bottom | Ctrl+B x close", s.ExitCode)
 	} else if offset > 0 {
-		footer = fmt.Sprintf("Scrollback -%d | %s", offset, footer)
+		footer = fmt.Sprintf("Scrollback -%d | ↑/↓ lines | PgUp/PgDn pages | Esc live", offset)
+		if s.RemoteKeys {
+			footer = fmt.Sprintf("Scrollback -%d | SELECT: ↑/↓ remote | wheel scroll | Esc live", offset)
+		}
 	}
 	if s.Failure != "" {
 		footer = safe(s.Failure) + " | Ctrl+B then x to close"
