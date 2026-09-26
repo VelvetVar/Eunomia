@@ -26,3 +26,6 @@ id_ed25519*
 *.pem
 .env
 .env.*
+logs/
+*.log
+*.log.*

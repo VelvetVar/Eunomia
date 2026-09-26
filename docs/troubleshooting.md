@@ -12,6 +12,32 @@ eunomia path
 
 `doctor` checks whether the local SSH client starts, whether ping and `ssh-keygen` can be found, and whether native terminal support is available. It doesn't test a remote login.
 
+## Connection logs
+
+Logging is automatic from version 2.0.3. After a failed connection, run this in another terminal:
+
+```sh
+eunomia logs
+```
+
+It prints recent application events and the most recently updated SSH log. To find the full files:
+
+```sh
+eunomia logs --path
+```
+
+The logs live in a `logs` folder beside `devices.json`. On Windows, that's normally `%APPDATA%\Eunomia\logs`. `EUNOMIA_HOME` changes both locations.
+
+`eunomia.log` records the app version, OS, selected SSH executable, target address, port, username, startup errors, and session exits. Each connection gets a separate `ssh-*.log` with OpenSSH's authentication results and connection errors. Match its filename to the `session` field in the application log when several tabs are open. The application log rotates at 1 MiB, with two older copies retained. Eunomia keeps ten completed SSH logs plus logs for active sessions; SSH files aren't size-capped while a connection is running.
+
+Passwords, key passphrases, typed keys, pasted text, and remote terminal contents aren't logged. SSH logging uses `VERBOSE`, not debug output that dumps configuration and proxy commands. Logs do contain device addresses, usernames, and local paths; review those before sharing a report. Nothing is uploaded automatically, and log files are excluded from Git and release packages.
+
+### Permission denied when normal SSH works
+
+Retry once in Eunomia, then check `eunomia logs`. Compare the recorded username, port, address, and SSH executable with the working command. Include `eunomia --version` and `eunomia doctor` when reporting the issue. Re-running setup installs the downloaded version; updating a source checkout alone doesn't update the installed `eunomia` command.
+
+The client log may still only report that authentication failed. A server can reject a login without explaining its account policy to the client; in that case, the device's SSH authentication log is needed for the reason. Don't include passwords in a bug report.
+
 ## The eunomia command isn't found
 
 Open a new terminal after setup. An already open terminal may still have the old PATH.

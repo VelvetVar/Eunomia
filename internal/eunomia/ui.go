@@ -51,6 +51,7 @@ type scanState struct {
 type App struct {
 	Screen               tcell.Screen
 	Store                Store
+	Diagnostics          *Diagnostics
 	Devices, Filtered    []Device
 	Selected             int
 	searchCursor         int
@@ -86,6 +87,16 @@ type App struct {
 func NewApp(screen tcell.Screen, store Store, animate bool) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{Screen: screen, Store: store, Mode: "list", Animate: animate, Angle: .35, Reach: map[string]Reachability{}, ctx: ctx, cancel: cancel, messages: make(chan any, 256), wake: make(chan *Session, 128), sessionMarks: map[*Session]string{}, opener: OpenSession, prepare: PrepareHostKeyReset, forget: ForgetHostKey}
+	diagnostics, logErr := NewDiagnostics(store.Directory)
+	a.Diagnostics = diagnostics
+	diagnostics.Started()
+	a.opener = func(device Device, w, h int, notify func(*Session)) (*Session, error) {
+		return openSession(device, w, h, notify, diagnostics)
+	}
+	if logErr != nil {
+		a.Message = "Logs unavailable: " + safe(logErr.Error())
+		a.Error = true
+	}
 	a.Scan.Ranges = LocalRanges()
 	if err := a.refresh(); err != nil {
 		cancel()
@@ -142,6 +153,7 @@ func (a *App) setMessage(err error, text string) {
 	a.Error = err != nil
 	if err != nil {
 		a.Message = safe(err.Error())
+		a.Diagnostics.Event("app.error", map[string]any{"error": err.Error()})
 	} else {
 		a.Message = text
 	}
@@ -172,9 +184,11 @@ drain:
 	for _, s := range a.Sessions {
 		s.Close()
 	}
+	a.Diagnostics.Event("app.stop", nil)
 }
 func (a *App) Run() error {
 	if err := a.Screen.Init(); err != nil {
+		a.Diagnostics.Event("terminal.init_error", map[string]any{"error": err.Error()})
 		a.Close()
 		return fmt.Errorf("interactive terminal required: %w", err)
 	}
@@ -187,6 +201,7 @@ func (a *App) Run() error {
 	a.Screen.Clear()
 	control, err := StartControl(a.Store.Directory, a.Stop)
 	if err != nil {
+		a.Diagnostics.Event("control.start_error", map[string]any{"error": err.Error()})
 		return err
 	}
 	defer control.Close()

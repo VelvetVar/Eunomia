@@ -19,6 +19,7 @@ Save a device once, give it a name, and open it from the list. Keep several SSH 
 - Pings saved devices about once a minute.
 - Finds SSH servers on your local network through the Discover tab.
 - Lets you remove a device's saved SSH fingerprint from the menu.
+- Keeps local connection diagnostics. Run `eunomia logs` after a failure.
 - Shows a slowly rotating orbital logo. Press `m` to pause it.
 
 Passwords are handled by your system's SSH client and are never saved by Eunomia. Your SSH keys, agent, and SSH configuration still work as usual.

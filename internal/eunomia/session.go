@@ -27,10 +27,15 @@ type Session struct {
 	closeOnce     sync.Once
 	inputDone     chan struct{}
 	writerDone    chan struct{}
+	exitDone      chan struct{}
+	diagnostic    *sshDiagnostic
 }
 
 func NewSession(d Device, process TerminalProcess, w, h int, notify func(*Session)) *Session {
-	s := &Session{Device: d, Term: vt.NewEmulator(w, h), Process: process, CursorVisible: true, inputDone: make(chan struct{}), writerDone: make(chan struct{})}
+	return newSession(d, process, w, h, notify, nil)
+}
+func newSession(d Device, process TerminalProcess, w, h int, notify func(*Session), diagnostic *sshDiagnostic) *Session {
+	s := &Session{Device: d, Term: vt.NewEmulator(w, h), Process: process, CursorVisible: true, inputDone: make(chan struct{}), writerDone: make(chan struct{}), exitDone: make(chan struct{}), diagnostic: diagnostic}
 	s.Term.SetScrollbackSize(2000)
 	s.Term.SetCallbacks(vt.Callbacks{CursorVisibility: func(visible bool) { s.CursorVisible = visible }})
 	// A stopped SSH client must not block the emulator's synchronous input pipe
@@ -43,6 +48,7 @@ func NewSession(d Device, process TerminalProcess, w, h int, notify func(*Sessio
 			s.Failure = "SSH input: " + err.Error()
 		}
 		s.mu.Unlock()
+		s.diagnostic.Event("ssh.input_error", map[string]any{"error": err.Error()})
 		notify(s)
 		go s.Close()
 	}
@@ -101,28 +107,48 @@ func NewSession(d Device, process TerminalProcess, w, h int, notify func(*Sessio
 		}
 	}()
 	go func() {
+		defer close(s.exitDone)
 		code, err := process.Wait()
 		s.mu.Lock()
+		requestedClose := s.closed
 		if err != nil && code < 0 && !s.closed && s.Failure == "" {
 			s.Failure = fmt.Sprintf("SSH process: %v", err)
+		}
+		if diagnostic != nil && code != 0 && !s.closed && s.Failure == "" {
+			s.Failure = fmt.Sprintf("SSH exited %d; run eunomia logs for details", code)
 		}
 		s.Exited = true
 		s.ExitCode = code
 		s.mu.Unlock()
+		fields := map[string]any{"code": code, "close_requested": requestedClose}
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		s.diagnostic.Event("ssh.exit", fields)
+		s.diagnostic.Finish()
 		notify(s)
 	}()
 	return s
 }
 func OpenSession(d Device, w, h int, notify func(*Session)) (*Session, error) {
+	return openSession(d, w, h, notify, nil)
+}
+func openSession(d Device, w, h int, notify func(*Session), diagnostics *Diagnostics) (*Session, error) {
 	file, err := Executable("ssh")
 	if err != nil {
 		return nil, err
 	}
-	p, err := StartTerminal(file, SSHArgs(d), w, h)
+	trace, logErr := diagnostics.SSH(d, file)
+	if logErr != nil {
+		diagnostics.Event("ssh.log_error", map[string]any{"error": logErr.Error()})
+	}
+	p, err := StartTerminal(file, trace.Args(SSHArgs(d)), w, h)
 	if err != nil {
+		trace.Event("ssh.start_error", map[string]any{"error": err.Error()})
+		trace.Finish()
 		return nil, err
 	}
-	return NewSession(d, p, w, h, notify), nil
+	return newSession(d, p, w, h, notify, trace), nil
 }
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
@@ -130,11 +156,13 @@ func (s *Session) Close() {
 		s.closed = true
 		s.Term.InputPipe().(io.Closer).Close()
 		s.mu.Unlock()
+		s.diagnostic.Event("ssh.close_requested", nil)
 		s.Process.Close()
 		// Close the concurrency-safe pipe and join its reader before changing
 		// the emulator's closed flag, which is not synchronized by the library.
 		<-s.inputDone
 		<-s.writerDone
+		<-s.exitDone
 		s.mu.Lock()
 		s.Term.Close()
 		s.mu.Unlock()

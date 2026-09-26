@@ -196,7 +196,7 @@ Each device stores its ID, name, host, user, port, description, and creation/upd
 
 For a backup, stop Eunomia and copy `devices.json`. To move to another machine, stop Eunomia there and place the file in the directory reported by `eunomia path`. Keep a copy of any destination file you want to retain. SSH keys, SSH configuration, and host-key files are managed separately by OpenSSH.
 
-The configuration directory can also contain `running.json`, which identifies the active TUI for `eunomia down`, and a temporary `devices.json.lock` while a writer is active. Don't copy these as part of a backup.
+The configuration directory can also contain `running.json`, which identifies the active TUI for `eunomia down`, a temporary `devices.json.lock` while a writer is active, and a `logs` folder for diagnostics. Don't copy these as part of a device backup. Use `eunomia logs` after a connection failure or `eunomia logs --path` to locate the files. See [Connection logs](troubleshooting.md#connection-logs) for retention and privacy details.
 
 Use `EUNOMIA_HOME` to keep a separate device list. In PowerShell:
 

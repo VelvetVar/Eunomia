@@ -10,13 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
 )
 
-var Version = "2.0.2"
+var Version = "2.0.3"
 
 const help = `EUNOMIA / Native Go homelab manager
 
@@ -30,6 +31,7 @@ Usage:
   eunomia remove <name-or-id> --yes
   eunomia connect <name-or-id> [--dry-run]
   eunomia path                      Print the device file location
+  eunomia logs [--path]             Show recent diagnostics or their directory
   eunomia doctor [--json]            Check SSH, ping and native terminal support
   eunomia install [--root path] [--bin path] [--no-path]
   eunomia --help | --version
@@ -54,7 +56,7 @@ type arguments struct {
 
 func parseArgs(args []string) (arguments, error) {
 	result := arguments{Options: map[string]string{}}
-	booleans := map[string]bool{"json": true, "yes": true, "dry-run": true, "no-animation": true, "help": true, "version": true, "no-path": true}
+	booleans := map[string]bool{"json": true, "yes": true, "dry-run": true, "no-animation": true, "help": true, "version": true, "no-path": true, "path": true}
 	values := map[string]bool{"host": true, "user": true, "port": true, "description": true, "name": true, "search": true, "root": true, "bin": true}
 	for i := 0; i < len(args); i++ {
 		token := args[i]
@@ -99,7 +101,7 @@ func Main(args []string, out, errOut io.Writer) int {
 	}
 	return code
 }
-func runCLI(args []string, out io.Writer) (int, error) {
+func runCLI(args []string, out io.Writer) (resultCode int, resultErr error) {
 	parsed, err := parseArgs(args)
 	if err != nil {
 		return 1, err
@@ -118,7 +120,7 @@ func runCLI(args []string, out io.Writer) (int, error) {
 	if len(p) > 0 {
 		command = p[0]
 	}
-	allowed := map[string]string{"up": "no-animation", "dashboard": "no-animation", "down": "", "list": "json search", "add": "host user port description", "edit": "name host user port description", "remove": "yes", "connect": "dry-run", "path": "", "doctor": "json", "install": "root bin no-path"}
+	allowed := map[string]string{"up": "no-animation", "dashboard": "no-animation", "down": "", "list": "json search", "add": "host user port description", "edit": "name host user port description", "remove": "yes", "connect": "dry-run", "path": "", "doctor": "json", "install": "root bin no-path", "logs": "path"}
 	flags, ok := allowed[command]
 	if !ok {
 		return 1, fmt.Errorf("unknown command %s; use eunomia --help", command)
@@ -141,6 +143,12 @@ func runCLI(args []string, out io.Writer) (int, error) {
 	}
 	store := Store{ConfigDir()}
 	switch command {
+	case "logs":
+		if o["path"] != "" {
+			fmt.Fprintln(out, filepath.Join(store.Directory, "logs"))
+			return 0, nil
+		}
+		return 0, PrintDiagnostics(store.Directory, out)
 	case "path":
 		fmt.Fprintln(out, store.Path())
 		return 0, nil
@@ -171,6 +179,13 @@ func runCLI(args []string, out io.Writer) (int, error) {
 		}
 		return 0, nil
 	case "up", "dashboard":
+		defer func() {
+			if resultErr != nil {
+				if diagnostics, err := NewDiagnostics(store.Directory); err == nil {
+					diagnostics.Event("app.startup_error", map[string]any{"version": Version, "error": resultErr.Error()})
+				}
+			}
+		}()
 		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) || os.Getenv("TERM") == "dumb" {
 			return 1, errors.New("the TUI needs an interactive terminal; use eunomia list or --help for command-line mode")
 		}
@@ -251,13 +266,38 @@ func runCLI(args []string, out io.Writer) (int, error) {
 		if err != nil {
 			return 1, err
 		}
-		cmd := exec.Command(file, SSHArgs(d)...)
+		diagnostics, logErr := NewDiagnostics(store.Directory)
+		if logErr != nil {
+			fmt.Fprintln(os.Stderr, "Logs unavailable:", logErr)
+		}
+		diagnostics.Started()
+		trace, logErr := diagnostics.SSH(d, file)
+		if logErr != nil {
+			fmt.Fprintln(os.Stderr, "SSH log unavailable:", logErr)
+		}
+		defer trace.Finish()
+		cmd := exec.Command(file, trace.Args(SSHArgs(d))...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = out
 		cmd.Stderr = os.Stderr
 		err = cmd.Run()
+		code := 0
+		if err != nil {
+			code = -1
+		}
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
+			code = exit.ExitCode()
+		}
+		fields := map[string]any{"code": code}
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		trace.Event("ssh.exit", fields)
+		if err != nil && trace != nil {
+			fmt.Fprintln(os.Stderr, "SSH failed; run eunomia logs for details.")
+		}
+		if exit != nil {
 			return exit.ExitCode(), nil
 		}
 		return 0, err

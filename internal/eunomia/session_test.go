@@ -28,6 +28,33 @@ func TestPTYHelper(t *testing.T) {
 		os.Exit(0)
 	case "ui":
 		os.Exit(Main([]string{"up", "--no-animation"}, os.Stdout, os.Stderr))
+	case "password":
+		fmt.Print("PASSWORD READY:")
+		password, err := term.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(password) == "Dummy P@ss!#$%&*()_+-=42" {
+			fmt.Print("\r\nPASSWORD ACCEPTED\r\n")
+		} else {
+			fmt.Print("\r\nPASSWORD REJECTED\r\n")
+		}
+		os.Exit(0)
+	case "password-ui":
+		screen, err := tcell.NewScreen()
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, err := NewApp(screen, Store{ConfigDir()}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := NewSession(fixtureDevice(), helperTerminal(t, "password", 80, 22), 80, 22, a.notify)
+		a.Sessions, a.View = []*Session{s}, 1
+		if err := a.Run(); err != nil {
+			t.Fatal(err)
+		}
+		os.Exit(0)
 	case "menu":
 		state, err := term.MakeRaw(int(os.Stdin.Fd()))
 		if err != nil {
@@ -97,6 +124,32 @@ func helperTerminal(t *testing.T, mode string, w, h int) TerminalProcess {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func TestNativeTUIPasswordInput(t *testing.T) {
+	for _, entry := range []struct{ name, input string }{
+		{"typed", "Dummy P@ss!#$%&*()_+-=42\r"},
+		{"paste", "\x1b[200~Dummy P@ss!#$%&*()_+-=42\x1b[201~\r"},
+		{"backspace", "Dummy P@ss!#$%&*()_+-=4x\x7f2\r"},
+	} {
+		t.Run(entry.name, func(t *testing.T) {
+			t.Setenv("EUNOMIA_HOME", t.TempDir())
+			s := NewSession(fixtureDevice(), helperTerminal(t, "password-ui", 80, 24), 80, 24, func(*Session) {})
+			defer s.Close()
+			text := func() string { s.mu.Lock(); defer s.mu.Unlock(); return s.Term.String() }
+			waitUntil(t, 8*time.Second, func() bool { return strings.Contains(text(), "PASSWORD READY:") })
+			s.SendLiteral(entry.input)
+			waitUntil(t, 3*time.Second, func() bool {
+				return strings.Contains(text(), "PASSWORD ACCEPTED") || strings.Contains(text(), "PASSWORD REJECTED")
+			})
+			if !strings.Contains(text(), "PASSWORD ACCEPTED") {
+				t.Fatal("dummy password was altered in transit")
+			}
+			if strings.Contains(text(), "Dummy P@ss") {
+				t.Fatal("password was echoed")
+			}
+		})
+	}
 }
 func TestNativeConcurrentTerminals(t *testing.T) {
 	a := NewSession(fixtureDevice(), helperTerminal(t, "echo", 80, 24), 80, 24, func(*Session) {})
