@@ -38,7 +38,13 @@ func (s Store) readData() (deviceFile, error) {
 	if err := data.Layout.validate(); err != nil {
 		return data, err
 	}
-	data.Layout.normalize(data.Devices)
+	var legacyIDs []string
+	if data.Version == 1 {
+		for _, device := range data.Devices {
+			legacyIDs = append(legacyIDs, device.ID)
+		}
+	}
+	data.Layout.normalize(data.Devices, legacyIDs...)
 	return data, nil
 }
 

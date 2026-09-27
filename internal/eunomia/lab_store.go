@@ -205,9 +205,13 @@ func (l LabLayout) items(parent string, devices []Device) []string {
 
 func (l LabLayout) rootOrder(devices []Device) []string { return l.items("", devices) }
 
-// In each group, systems following a folder heading belong to that folder.
-// Apply recursively so saved membership always agrees with visible placement.
-func (l *LabLayout) normalize(devices []Device) {
+// Reconcile saved order without changing membership on reload or expansion.
+// Only devices affected by a move may join an expanded heading they pass.
+func (l *LabLayout) normalize(devices []Device, adoptIDs ...string) {
+	adopt := map[string]bool{}
+	for _, id := range adoptIDs {
+		adopt[id] = true
+	}
 	known := map[string]bool{}
 	for _, device := range devices {
 		known[device.ID] = true
@@ -231,8 +235,12 @@ func (l *LabLayout) normalize(devices []Device) {
 			kind, id, _ := strings.Cut(entry, ":")
 			if kind == "folder" {
 				previousFolder = id
+				folder, _ := l.folder(id)
+				if folder.Collapsed {
+					previousFolder = ""
+				}
 				items = append(items, entry)
-			} else if previousFolder != "" {
+			} else if previousFolder != "" && adopt[id] {
 				l.DeviceFolders[id] = previousFolder
 				groups[previousFolder] = append(groups[previousFolder], entry)
 			} else {
@@ -313,7 +321,7 @@ func (s Store) CollapseFolder(id string, collapsed bool) error {
 }
 
 func (s Store) DeleteFolder(id string) error {
-	return s.mutateLayout(func(l *LabLayout, _ []Device) error {
+	return s.mutateLayout(func(l *LabLayout, devices []Device) error {
 		folder, err := l.folder(id)
 		if err != nil {
 			return err
@@ -322,20 +330,25 @@ func (s Store) DeleteFolder(id string) error {
 		items := l.storedItems(parent)
 		index := slices.Index(items, "folder:"+id)
 		children := l.storedItems(id)
+		promoted := []string{}
 		for _, entry := range children {
 			kind, child, _ := strings.Cut(entry, ":")
 			if kind == "folder" {
 				f, _ := l.folder(child)
 				f.ParentID = parent
-			} else if parent == "" {
-				delete(l.DeviceFolders, child)
 			} else {
-				l.DeviceFolders[child] = parent
+				promoted = append(promoted, child)
+				if parent == "" {
+					delete(l.DeviceFolders, child)
+				} else {
+					l.DeviceFolders[child] = parent
+				}
 			}
 		}
 		l.setItems(parent, slices.Replace(items, index, index+1, children...))
 		delete(l.FolderOrder, id)
 		l.Folders = slices.DeleteFunc(l.Folders, func(f Folder) bool { return f.ID == id })
+		l.normalize(devices, promoted...)
 		return nil
 	})
 }
@@ -393,37 +406,53 @@ func (s Store) MoveDevice(id string, direction int) error {
 		items := l.storedItems(parent)
 		index := slices.Index(items, "device:"+id)
 		next := index + direction
+		var adoptIDs []string
 		if next >= 0 && next < len(items) {
 			kind, target, _ := strings.Cut(items[next], ":")
-			if kind == "device" {
+			folder, _ := l.folder(target)
+			if kind == "folder" {
+				adoptIDs = []string{id}
+			}
+			if kind == "device" || folder.Collapsed {
 				items[index], items[next] = items[next], items[index]
 				l.setItems(parent, items)
 			} else {
-				l.placeDevice(id, target, 0)
+				position := 0
+				if direction < 0 {
+					position = len(l.storedItems(target))
+				}
+				l.placeDevice(id, target, position)
 			}
 		} else if direction < 0 && parent != "" {
 			folder, _ := l.folder(parent)
 			outer := l.storedItems(folder.ParentID)
 			l.placeDevice(id, folder.ParentID, slices.Index(outer, "folder:"+parent))
+			adoptIDs = []string{id}
 		} else {
-			// The next visible group can be a sibling of any ancestor.
-			target := ""
+			// The next visible item can be a sibling of any ancestor.
+			moved := false
 			for current := parent; current != ""; {
 				folder, _ := l.folder(current)
 				outer := l.storedItems(folder.ParentID)
 				position := slices.Index(outer, "folder:"+current)
 				if direction > 0 && position+1 < len(outer) {
-					target = strings.TrimPrefix(outer[position+1], "folder:")
+					kind, target, _ := strings.Cut(outer[position+1], ":")
+					nextFolder, _ := l.folder(target)
+					if kind == "folder" && !nextFolder.Collapsed {
+						l.placeDevice(id, target, 0)
+					} else {
+						l.placeDevice(id, folder.ParentID, position+2)
+					}
+					moved = true
 					break
 				}
 				current = folder.ParentID
 			}
-			if target == "" {
+			if !moved {
 				return errors.New("device is already at the edge of the Lab list")
 			}
-			l.placeDevice(id, target, 0)
 		}
-		l.normalize(devices)
+		l.normalize(devices, adoptIDs...)
 		l.expandAncestors(l.DeviceFolders[id])
 		return nil
 	})
@@ -433,7 +462,7 @@ func (s Store) MoveFolder(id string, direction int) error {
 	if direction != 1 && direction != -1 {
 		return errors.New("move direction must be up or down")
 	}
-	return s.mutateLayout(func(l *LabLayout, _ []Device) error {
+	return s.mutateLayout(func(l *LabLayout, devices []Device) error {
 		folder, err := l.folder(id)
 		if err != nil {
 			return err
@@ -445,20 +474,32 @@ func (s Store) MoveFolder(id string, direction int) error {
 		if next >= 0 && next < len(items) {
 			items[index], items[next] = items[next], items[index]
 			l.setItems(parent, items)
-			return nil
+		} else {
+			if parent == "" {
+				return errors.New("folder is already at the edge of the Lab list")
+			}
+			outerFolder, _ := l.folder(parent)
+			outer := l.storedItems(outerFolder.ParentID)
+			position := slices.Index(outer, "folder:"+parent)
+			if direction > 0 {
+				position++
+			}
+			l.setItems(parent, slices.Delete(items, index, index+1))
+			folder.ParentID = outerFolder.ParentID
+			l.setItems(folder.ParentID, slices.Insert(outer, position, "folder:"+id))
 		}
-		if parent == "" {
-			return errors.New("folder is already at the edge of the Lab list")
+		if !folder.Collapsed {
+			items = l.storedItems(folder.ParentID)
+			following := []string{}
+			for _, entry := range items[slices.Index(items, "folder:"+id)+1:] {
+				kind, device, _ := strings.Cut(entry, ":")
+				if kind == "folder" {
+					break
+				}
+				following = append(following, device)
+			}
+			l.normalize(devices, following...)
 		}
-		outerFolder, _ := l.folder(parent)
-		outer := l.storedItems(outerFolder.ParentID)
-		position := slices.Index(outer, "folder:"+parent)
-		if direction > 0 {
-			position++
-		}
-		l.setItems(parent, slices.Delete(items, index, index+1))
-		folder.ParentID = outerFolder.ParentID
-		l.setItems(folder.ParentID, slices.Insert(outer, position, "folder:"+id))
 		return nil
 	})
 }

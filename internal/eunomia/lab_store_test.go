@@ -135,7 +135,7 @@ func TestLabLayoutSurvivesProfileEditsAndPrunesRemovedDevices(t *testing.T) {
 	}
 }
 
-func TestLabMoveThroughFolderBoundaries(t *testing.T) {
+func TestLabMoveThroughExpandedFolderBoundaries(t *testing.T) {
 	store := Store{t.TempDir()}
 	devices := []Device{}
 	for _, name := range []string{"A", "B", "C", "D", "E"} {
@@ -158,11 +158,6 @@ func TestLabMoveThroughFolderBoundaries(t *testing.T) {
 		}
 	}
 	original := savedProfileBytes(t, store)
-	for _, folder := range folders {
-		if err := store.CollapseFolder(folder.ID, true); err != nil {
-			t.Fatal(err)
-		}
-	}
 	steps := []struct {
 		direction int
 		groups    [4]string // Lab, Servers, Empty, Network, in display order.
@@ -185,12 +180,6 @@ func TestLabMoveThroughFolderBoundaries(t *testing.T) {
 		{-1, [4]string{"BA", "CD", "", "E"}, true},
 	}
 	for i, step := range steps {
-		// Also exercise entering collapsed folders while moving up.
-		if i == 8 || i == 9 {
-			if err := store.CollapseFolder(folders[9-i].ID, true); err != nil {
-				t.Fatal(err)
-			}
-		}
 		before, _ := os.ReadFile(store.LayoutPath())
 		err := store.MoveDevice(devices[1].ID, step.direction)
 		if (err != nil) != step.edge {

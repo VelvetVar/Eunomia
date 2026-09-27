@@ -124,7 +124,7 @@ eunomia export my-lab.json
 eunomia import my-lab.json --yes
 ```
 
-Export creates a new file. Import replaces the destination Lab; press `r` in an open Lab to reload it. Devices beneath a folder heading belong to that folder and collapse with it. Moving a folder above systems adopts those systems automatically. Deleting a folder preserves its devices and subfolders.
+Export creates a new file. Import replaces the destination Lab; press `r` in an open Lab to reload it. Moving systems beneath an expanded folder heading makes them members, and moving an expanded folder above systems adopts them automatically. Collapsed folders and subfolders stay closed and ignore systems passing them. Expanding later preserves that membership. Deleting a folder preserves its devices and subfolders.
 
 Existing version 1 profiles and the old separate `lab.json` are migrated automatically. The original device file is retained as `devices.json.v1-backup`; the old `lab.json` is no longer used after migration. The combined format requires Eunomia 2.3 or newer. Only the new `devices.json` is needed to transfer the complete Lab.
 

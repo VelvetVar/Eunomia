@@ -278,7 +278,7 @@ func (a *App) drawMove(w, bottom, top int) {
 			a.put(3, top+2, folder.Name, whiteStyle, w-6)
 		}
 		a.put(3, top+3, "The folder and all its devices move together.", dimStyle, w-6)
-		a.put(3, top+4, "Systems below the heading join this folder.", dimStyle, w-6)
+		a.put(3, top+4, "Only expanded folders adopt systems they pass.", dimStyle, w-6)
 		for i, label := range []string{"Move folder up", "Move folder down"} {
 			style, marker := baseStyle, "  "
 			if i == a.Move.Selected {
@@ -300,7 +300,7 @@ func (a *App) drawMove(w, bottom, top int) {
 			a.put(3, top+4, "No folders yet. Esc, then Shift+F to create one.", dimStyle, w-6)
 		}
 	} else {
-		a.put(3, top+4, "Crossing a folder heading changes membership.", dimStyle, w-6)
+		a.put(3, top+4, "Join expanded folders; pass collapsed folders.", dimStyle, w-6)
 	}
 	visible := max(1, bottom-top-5)
 	offset := max(first, a.Move.Selected-visible+1)

@@ -26,7 +26,7 @@ func TestSingleFileMigratesLegacyPlacementAndExportsEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 	layout := newLabLayout()
-	layout.Folders = []Folder{{ID: "servers", Name: "Servers", Collapsed: true}}
+	layout.Folders = []Folder{{ID: "servers", Name: "Servers"}}
 	layout.Order = []string{first.ID, second.ID}
 	layout.RootOrder = []string{"device:" + first.ID, "folder:servers", "device:" + second.ID}
 	rawLayout, _ := json.Marshal(layout)
@@ -41,7 +41,7 @@ func TestSingleFileMigratesLegacyPlacementAndExportsEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile, err := decodeDeviceFile(raw)
-	if err != nil || profile.Version != 2 || profile.Layout == nil || profile.Layout.DeviceFolders[second.ID] != "servers" || !profile.Layout.Folders[0].Collapsed {
+	if err != nil || profile.Version != 2 || profile.Layout == nil || profile.Layout.DeviceFolders[second.ID] != "servers" || profile.Layout.Folders[0].Collapsed {
 		t.Fatal("legacy placement or collapsed state lost", err)
 	}
 	backup, err := os.ReadFile(store.Path() + ".v1-backup")

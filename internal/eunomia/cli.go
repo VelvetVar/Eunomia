@@ -17,7 +17,7 @@ import (
 	"text/tabwriter"
 )
 
-var Version = "2.3.0"
+var Version = "2.3.1"
 
 const help = `EUNOMIA / Native Go homelab manager
 
@@ -43,7 +43,7 @@ Lab: a add / e edit / Delete remove / f forget fingerprint / d Discover
      Shift+M Move menu / Alt+Up,Down move / Shift+F new folder
      Shift+F on a folder creates a subfolder / Ctrl+F top-level folder
      v details / ? all keys / e rename selected folder
-     Move past a folder heading to change device membership
+     Move past an expanded folder to join it; collapsed folders are skipped
      Right on a device: move into a folder or back to Lab
      Enter or Space toggles folders / Left collapse / Right expand
 Tabs: Ctrl+B, release, then n/p tabs, h or 0 Lab, d Discover, x close

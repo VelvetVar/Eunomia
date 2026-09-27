@@ -386,6 +386,22 @@ func TestNativeLabOrganization(t *testing.T) {
 		folderID = layout.Folders[0].ID
 		return strings.Contains(text(), "Servers (0)")
 	})
+	session.SendLiteral("\r")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "[+] Servers (0)") })
+	session.SendLiteral("/Beta\rM")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "MOVE DEVICE") })
+	session.SendLiteral("\x1b[B\r")
+	waitUntil(t, 3*time.Second, func() bool {
+		layout, err := store.ReadLayout()
+		return err == nil && layout.Folders[0].Collapsed && layout.DeviceFolders[beta.ID] == "" && len(layout.RootOrder) == 3 && layout.RootOrder[2] == "device:"+beta.ID && strings.Contains(text(), "[+] Servers (0)")
+	})
+	session.SendLiteral("M\r")
+	waitUntil(t, 3*time.Second, func() bool {
+		layout, err := store.ReadLayout()
+		return err == nil && layout.Folders[0].Collapsed && len(layout.RootOrder) == 3 && layout.RootOrder[1] == "device:"+beta.ID && strings.Contains(text(), "Device order saved.")
+	})
+	session.SendLiteral("\x1b[B\r")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "[-] Servers (0)") })
 	session.SendLiteral("/Beta\rM")
 	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "MOVE DEVICE") })
 	session.SendLiteral("\x1b[B\r")
