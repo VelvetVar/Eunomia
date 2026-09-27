@@ -97,6 +97,8 @@ func (a *App) prompt() string {
 			return "Disconnect this SSH session? y / n"
 		case "delete":
 			return "Remove " + a.Pending.Device.Name + "? y confirm / n cancel"
+		case "delete-folder":
+			return "Delete " + runewidth.Truncate(a.Pending.Folder.Name, 16, "…") + "? Keep devices. y / n"
 		case "forget":
 			return "Forget the saved fingerprint? y confirm / n cancel"
 		}
@@ -152,7 +154,7 @@ func (a *App) drawLab(w, h int) {
 	if h >= 34 {
 		hero = 14
 	}
-	if a.Mode == "fingerprint" || a.Mode == "help" || (h < 34 && a.Mode != "list" && a.Mode != "search") {
+	if a.Mode == "fingerprint" || a.Mode == "help" || a.Mode == "move" || a.Mode == "folder" || (h < 34 && a.Mode != "list" && a.Mode != "search") {
 		hero = 0
 	}
 	logoWidth := 26
@@ -183,13 +185,22 @@ func (a *App) drawLab(w, h int) {
 	}
 	top := hero + 4
 	a.rule(top)
-	footer := "a add e edit Del remove f forget D discover Enter SSH ? help"
+	footer := "a add  e edit  M move  F folder  Del remove  Enter open"
 	switch a.Mode {
+	case "folder":
+		a.drawFolderForm(w, top)
+		footer = "Enter save folder / Esc cancel"
+	case "move":
+		a.drawMove(w, h, top)
+		footer = "↑/↓ choose / Enter move / Esc cancel"
 	case "help":
 		a.put(3, top+1, "KEYBOARD GUIDE", tealStyle, w-6)
 		lines := []string{
 			"↑ ↓ / j k select         Enter connect / resume SSH",
 			"a add / e edit          Delete remove (confirmation)",
+			"M move device / Alt+↑↓ reorder within its group",
+			"F new folder / e rename / Delete folder keeps devices",
+			"Folders: Enter/Space toggle / ← collapse / → expand",
 			"f forget fingerprint    D discover port 22",
 			"/ search / r reload     p ping now (auto every 60s)",
 			"m animation             q quit from the directory",
@@ -198,8 +209,7 @@ func (a *App) drawLab(w, h int) {
 			"Ctrl+B then h/0: Lab; D: Discover; 1–9: SSH sessions",
 			"Ctrl+B then x: close; b: send Ctrl+B",
 			"SSH: ↑/↓, PgUp/PgDn or wheel scroll; Esc returns live",
-			"F7: toggle remote option selection; wheel still scrolls",
-			"Alt+↑/↓: shell history; full-screen apps keep normal keys",
+			"F7 remote selection / Alt+↑↓ shell history",
 		}
 		for i, line := range lines {
 			if top+3+i < h-3 {
@@ -227,6 +237,9 @@ func (a *App) drawLab(w, h int) {
 			title = "EDIT DEVICE"
 		}
 		a.put(3, top+1, title, tealStyle, w-6)
+		if folder, err := a.Layout.folder(a.Form.FolderID); err == nil {
+			a.put(3, top+2, "Folder: "+folder.Name, dimStyle, w-6)
+		}
 		labels := []string{"Device name", "IP address / hostname", "Default user", "SSH port", "Description"}
 		for i, label := range labels {
 			style := dimStyle
@@ -266,6 +279,7 @@ func (a *App) drawLab(w, h int) {
 			footer = "Forgetting saved fingerprint..."
 		}
 	default:
+		rows := a.labRows()
 		title := fmt.Sprintf("DEVICES %d / PING EVERY 60s / p refresh", len(a.Filtered))
 		if a.Mode == "search" {
 			title = "SEARCH / " + inputView(a.Query, a.searchCursor, w-15)
@@ -285,8 +299,9 @@ func (a *App) drawLab(w, h int) {
 		a.put(statusX, top+3, "PING", dimStyle, 11)
 		visible := max(1, h-top-9)
 		offset := max(0, a.Selected-visible+1)
-		for i := offset; i < min(len(a.Filtered), offset+visible); i++ {
-			d := a.Filtered[i]
+		for i := offset; i < min(len(rows), offset+visible); i++ {
+			row := rows[i]
+			d := row.Device
 			y := top + 4 + i - offset
 			style := baseStyle
 			marker := " "
@@ -296,7 +311,20 @@ func (a *App) drawLab(w, h int) {
 			}
 			a.put(3, y, strings.Repeat(" ", split-4), style, split-4)
 			a.put(3, y, marker, style, 1)
-			a.put(5, y, d.Name, style, nameWidth-2)
+			if row.IsFolder {
+				symbol := "[-] "
+				if row.Folder.Collapsed {
+					symbol = "[+] "
+				}
+				label := fmt.Sprintf("%s%s (%d)", symbol, row.Folder.Name, row.Count)
+				a.put(5, y, label, style.Foreground(tcell.NewRGBColor(94, 234, 212)), split-7)
+				continue
+			}
+			name := d.Name
+			if a.Layout.DeviceFolders[d.ID] != "" && a.Query == "" {
+				name = "  " + name
+			}
+			a.put(5, y, name, style, nameWidth-2)
 			a.put(5+nameWidth, y, d.Host, style, hostWidth-2)
 			a.put(5+nameWidth+hostWidth, y, d.Username, style, statusX-5-nameWidth-hostWidth-1)
 			status := a.Reach[d.ID].Status
@@ -305,7 +333,7 @@ func (a *App) drawLab(w, h int) {
 			}
 			a.put(statusX, y, status, style, 11)
 		}
-		if len(a.Filtered) == 0 {
+		if len(rows) == 0 {
 			empty := "Your homelab starts here."
 			hint := "Press a to add your first device."
 			if a.Query != "" {
@@ -314,9 +342,19 @@ func (a *App) drawLab(w, h int) {
 			}
 			a.put(5, top+5, empty, whiteStyle, w-10)
 			a.put(5, top+7, hint, dimStyle, w-10)
+		} else if folder, ok := a.selectedFolder(); ok {
+			row := rows[a.Selected]
+			a.put(3, h-4, a.folderSummary(row), dimStyle, w-6)
+			if w >= 100 {
+				a.put(split+3, top+3, "FOLDER", goldStyle, w-split-6)
+				a.put(split+3, top+5, folder.Name, whiteStyle, w-split-6)
+				a.put(split+3, top+7, "Enter: collapse / expand", dimStyle, w-split-6)
+				a.put(split+3, top+8, "a: add device / e: rename", dimStyle, w-split-6)
+				a.put(split+3, top+9, "Delete: keep devices in Lab", dimStyle, w-split-6)
+			}
 		} else {
 			d, _ := a.selected()
-			a.put(3, h-4, fmt.Sprintf("%d / %d / SSH %d / %s", a.Selected+1, len(a.Filtered), d.Port, d.Description), dimStyle, w-6)
+			a.put(3, h-4, fmt.Sprintf("%d / %d / SSH %d / %s", a.Selected+1, len(rows), d.Port, d.Description), dimStyle, w-6)
 			if w >= 100 {
 				for y := top + 3; y < h-4; y++ {
 					a.put(split, y, "│", dimStyle, 1)
@@ -332,6 +370,9 @@ func (a *App) drawLab(w, h int) {
 					}
 				}
 			}
+		}
+		if a.Mode == "list" {
+			a.put(3, h-1, "Alt+↑/↓ move  ←/→ folders  D discover  / search  ? help", dimStyle, w-6)
 		}
 	}
 	a.rule(h - 3)

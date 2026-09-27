@@ -17,6 +17,8 @@ dist/
 # Local profiles, runtime records, and credentials
 devices.json
 devices.json.*
+lab.json
+lab.json.*
 running.json
 install.lock
 known_hosts*

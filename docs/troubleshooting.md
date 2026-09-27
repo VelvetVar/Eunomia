@@ -121,6 +121,8 @@ Application files and device files live in separate directories. Moving or reins
 
 ## A profile file is invalid or locked
 
+Folder organization is stored separately in `lab.json`. An invalid layout is reported without overwriting it. Back up that file before restoring a known good copy. `lab.json.lock` prevents concurrent layout edits; remove a stale lock only after closing other Eunomia instances. Problems with the layout do not replace or erase `devices.json`.
+
 Eunomia reports malformed device files instead of replacing them with an empty list. Back up the file before editing it, or restore a known good copy. A valid file uses the version 1 schema; manually removing IDs or timestamps can make it unreadable.
 
 `devices.json.lock` prevents concurrent writers from overwriting each other. A crash during a write may leave it behind. Close Eunomia and any command that might be editing profiles before removing that lock file and retrying.

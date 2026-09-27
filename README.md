@@ -15,6 +15,7 @@ Save a device once, give it a name, and open it from the list. Keep several SSH 
 ## What it does
 
 - Saves device names, addresses, SSH users, ports, and notes.
+- Reorders devices and groups them in folders that collapse and expand.
 - Keeps SSH sessions in separate tabs, each with its own scrollback.
 - Pings saved devices about once a minute.
 - Finds SSH servers on your local network through the Discover tab.
@@ -77,6 +78,10 @@ eunomia down
 | `↑` / `↓` or `j` / `k` | Select a device |
 | `Enter` | Connect, or return to that device's open session |
 | `a` / `e` | Add / edit a device |
+| `M` / `Alt+↑` / `Alt+↓` | Move menu / move a device up / down within its group |
+| `F` | Create a folder |
+| `Enter` / `←` / `→` on a folder | Toggle / collapse / expand its devices |
+| `e` / `Delete` on a folder | Rename / delete the folder, keeping its devices |
 | `Delete` | Remove a saved device |
 | `/` | Search devices |
 | `D` | Open Discover |
@@ -107,6 +112,8 @@ Run `eunomia path` to see the exact location on your machine.
 | macOS | `~/Library/Application Support/Eunomia/devices.json` |
 
 Set `EUNOMIA_HOME` to use another directory. Back up `devices.json` to keep your saved devices. It contains connection details and descriptions; passwords and terminal output aren't written to it.
+
+Folder membership, collapsed folders, and manual device order are saved alongside it in `lab.json`. Back up both files to keep your Lab organization. Deleting a folder returns its devices to the main Lab list.
 
 The Go version uses the same device file as the earlier Node version, so existing devices carry over.
 

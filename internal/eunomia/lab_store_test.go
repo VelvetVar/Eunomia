@@ -1,0 +1,190 @@
+package eunomia
+
+import (
+	"bytes"
+	"os"
+	"reflect"
+	"testing"
+)
+
+func saveLabDevice(t *testing.T, store Store, name string) Device {
+	t.Helper()
+	device := fixtureDevice()
+	device.Name = name
+	saved, err := store.Save(device, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return saved
+}
+
+func layoutIDs(layout LabLayout, devices []Device, folder string) []string {
+	var ids []string
+	for _, device := range layout.search(devices, "") {
+		if layout.DeviceFolders[device.ID] == folder {
+			ids = append(ids, device.ID)
+		}
+	}
+	return ids
+}
+
+func TestLabOrganizationPersistsWithoutChangingProfiles(t *testing.T) {
+	store := Store{t.TempDir()}
+	c := saveLabDevice(t, store, "C")
+	a := saveLabDevice(t, store, "A")
+	b := saveLabDevice(t, store, "B")
+	original, _ := os.ReadFile(store.Path())
+	layout, err := store.ReadLayout()
+	if err != nil || len(layout.Order) != 0 {
+		t.Fatal("legacy profiles did not get an empty layout", err)
+	}
+	if _, err := os.Stat(store.LayoutPath()); !os.IsNotExist(err) {
+		t.Fatal("reading legacy profiles wrote a layout")
+	}
+	if err := store.MoveDevice(c.ID, -1); err != nil {
+		t.Fatal(err)
+	}
+	devices, _ := store.Read()
+	layout, _ = store.ReadLayout()
+	if !reflect.DeepEqual(layoutIDs(layout, devices, ""), []string{a.ID, c.ID, b.ID}) {
+		t.Fatal("move did not persist relative order")
+	}
+	folder, err := store.SaveFolder("  Servers  ", "")
+	if err != nil || folder.Name != "Servers" {
+		t.Fatal(folder, err)
+	}
+	for _, id := range []string{c.ID, a.ID} {
+		if err := store.PlaceDevice(id, folder.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.MoveDevice(a.ID, -1); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CollapseFolder(folder.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	layout, err = (Store{store.Directory}).ReadLayout()
+	if err != nil || !layout.Folders[0].Collapsed || !reflect.DeepEqual(layoutIDs(layout, devices, folder.ID), []string{a.ID, c.ID}) {
+		t.Fatal("folder state or order lost on reload", err)
+	}
+	if !reflect.DeepEqual(layoutIDs(layout, devices, ""), []string{b.ID}) {
+		t.Fatal("moving inside a folder reordered or moved an unrelated device")
+	}
+	after, _ := os.ReadFile(store.Path())
+	if !bytes.Equal(original, after) {
+		t.Fatal("organization rewrote device profiles")
+	}
+	if err := store.DeleteFolder(folder.ID); err != nil {
+		t.Fatal(err)
+	}
+	layout, _ = store.ReadLayout()
+	after, _ = os.ReadFile(store.Path())
+	if len(layout.Folders) != 0 || len(layout.DeviceFolders) != 0 || !bytes.Equal(original, after) {
+		t.Fatal("deleting a folder deleted or changed devices")
+	}
+}
+
+func TestLabLayoutSurvivesProfileEditsAndPrunesRemovedDevices(t *testing.T) {
+	store := Store{t.TempDir()}
+	a := saveLabDevice(t, store, "A")
+	b := saveLabDevice(t, store, "B")
+	folder, _ := store.SaveFolder("Servers", "")
+	if err := store.PlaceDevice(a.ID, folder.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.Name = "Renamed"
+	if _, err := store.Save(a, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Remove(b.ID); err != nil {
+		t.Fatal(err)
+	}
+	c := saveLabDevice(t, store, "C")
+	if err := store.CollapseFolder(folder.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	layout, err := store.ReadLayout()
+	if err != nil || layout.DeviceFolders[a.ID] != folder.ID || !reflect.DeepEqual(layout.Order, []string{a.ID, c.ID}) {
+		t.Fatal("CLI profile changes lost folder membership or left stale order", layout, err)
+	}
+	if err := store.PlaceDevice(c.ID, folder.ID); err != nil {
+		t.Fatal(err)
+	}
+	layout, _ = store.ReadLayout()
+	if layout.Folders[0].Collapsed {
+		t.Fatal("moving into a folder did not expand it")
+	}
+	if err := store.PlaceDevice(a.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	layout, _ = store.ReadLayout()
+	if layout.DeviceFolders[a.ID] != "" || layout.DeviceFolders[c.ID] != folder.ID {
+		t.Fatal("move back to Lab changed other membership")
+	}
+}
+
+func TestLabLayoutValidationAndLockPreserveOriginalFiles(t *testing.T) {
+	store := Store{t.TempDir()}
+	device := saveLabDevice(t, store, "A")
+	for _, original := range []string{
+		`{"version":9,"folders":[],"order":[],"deviceFolders":{}}`,
+		`{"version":1,"folders":[{"id":"one","name":"A"},{"id":"two","name":" a "}],"order":[],"deviceFolders":{}}`,
+		`{"version":1,"folders":[],"order":["same","same"],"deviceFolders":{}}`,
+		`{"version":1,"folders":[],"order":[],"deviceFolders":{"device":"missing"}}`,
+		`{"version":1}`, `{broken`,
+	} {
+		if err := os.WriteFile(store.LayoutPath(), []byte(original), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.ReadLayout(); err == nil {
+			t.Fatal("accepted invalid layout", original)
+		}
+		if _, err := store.SaveFolder("Replacement", ""); err == nil {
+			t.Fatal("overwrote invalid layout")
+		}
+		data, _ := os.ReadFile(store.LayoutPath())
+		if string(data) != original {
+			t.Fatal("invalid layout changed")
+		}
+		if devices, err := store.Read(); err != nil || len(devices) != 1 || devices[0].ID != device.ID {
+			t.Fatal("layout corruption affected device profiles", err)
+		}
+	}
+	os.Remove(store.LayoutPath())
+	os.WriteFile(store.LayoutPath()+".lock", nil, 0600)
+	if _, err := store.SaveFolder("Blocked", ""); err == nil {
+		t.Fatal("ignored layout writer lock")
+	}
+	if _, err := os.Stat(store.LayoutPath()); !os.IsNotExist(err) {
+		t.Fatal("wrote a layout despite lock")
+	}
+}
+
+func TestLabFolderNamesAndFailedMoves(t *testing.T) {
+	store := Store{t.TempDir()}
+	device := saveLabDevice(t, store, "A")
+	folder, err := store.SaveFolder("Servers", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, _ := os.ReadFile(store.LayoutPath())
+	for _, name := range []string{"", "  ", "servers", "bad\nname", "bad\x1bname"} {
+		if _, err := store.SaveFolder(name, ""); err == nil {
+			t.Fatal("accepted invalid or duplicate folder name")
+		}
+	}
+	for _, err := range []error{store.PlaceDevice(device.ID, "missing"), store.PlaceDevice("missing", folder.ID), store.MoveDevice(device.ID, -1), store.MoveDevice(device.ID, 2), store.DeleteFolder("missing")} {
+		if err == nil {
+			t.Fatal("invalid organization action succeeded")
+		}
+	}
+	after, _ := os.ReadFile(store.LayoutPath())
+	if !bytes.Equal(original, after) {
+		t.Fatal("failed action changed the layout")
+	}
+	renamed, err := store.SaveFolder("Network", folder.ID)
+	if err != nil || renamed.ID != folder.ID || renamed.Name != "Network" {
+		t.Fatal("rename changed folder identity", err)
+	}
+}

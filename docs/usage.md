@@ -33,6 +33,12 @@ Lab is your saved device list and occupies tab `0`.
 | `↑` / `↓`, `j` / `k` | Move through devices |
 | `a` | Add a device |
 | `e` | Edit the selected device |
+| `M` | Open Move: up, down, another folder, or back to Lab |
+| `Alt+↑` / `Alt+↓` | Move the selected device up / down within its group |
+| `F` | Create a folder |
+| `Enter` / `Space` on a folder | Collapse or expand its devices |
+| `←` / `→` on a folder | Collapse / expand |
+| `e` / `Delete` on a folder | Rename / delete the folder after confirmation |
 | `Delete` | Remove the selected device after confirmation |
 | `Enter` | Open SSH, or return to the device's existing live tab |
 | `/` | Search names, hosts, users, and descriptions |
@@ -55,6 +61,16 @@ Use `Tab`, `Shift+Tab`, or up/down arrows to change fields. Left/right arrows, H
 Pasting inserts text into the current field. Pasted tabs and line breaks become spaces; they won't move between fields, save a form, or confirm a deletion.
 
 Deleting a profile doesn't edit the remote device or remove its SSH fingerprint.
+
+### Folders and device order
+
+Press `F`, type a folder name, and press `Enter`. Select a device and press `M` to move it up or down within its current group, put it inside a folder, or return it to Lab. `Alt+↑` and `Alt+↓` reorder directly. Folders appear below devices that are not in a folder. Moving a device into another group places it at the end of that group.
+
+Folder headings show `[+]` when collapsed and `[-]` when expanded, plus their device count. `Enter` or `Space` toggles the selected folder. Left/right arrows collapse/expand it; pressing left on a device also collapses its parent folder. Collapsing only hides the list entries: saved devices and active SSH sessions remain available. Search returns matching devices even when their folder is collapsed.
+
+Press `a` with a folder or one of its devices selected to add a device to that folder. Press `e` on a folder to rename it. `Delete` asks for confirmation and removes only the folder; its devices return to Lab. Folders do not nest inside other folders.
+
+Order, folder membership, and collapsed state persist across restarts in `lab.json`, beside `devices.json`. Existing device files work without migration. Back up both files. CLI commands such as `list`, `edit`, and `connect` continue to use all devices, including those inside collapsed folders; `list` keeps its alphabetical output.
 
 ## SSH tabs
 

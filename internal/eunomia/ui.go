@@ -18,9 +18,11 @@ type formState struct {
 	Values        [5]string
 	Field, Cursor int
 	EditID        string
+	FolderID      string
 }
 type action struct {
 	Kind    string
+	Folder  Folder
 	Device  Device
 	Session *Session
 	Plan    HostKeyPlan
@@ -53,6 +55,9 @@ type App struct {
 	Store                Store
 	Diagnostics          *Diagnostics
 	Devices, Filtered    []Device
+	Layout               LabLayout
+	FolderForm           folderFormState
+	Move                 moveState
 	Selected             int
 	searchCursor         int
 	Query, Mode, Message string
@@ -116,16 +121,21 @@ func (a *App) refresh() error {
 	if err != nil {
 		return err
 	}
-	a.Devices = devices
-	a.Filtered = Search(devices, a.Query)
-	a.Selected = max(0, min(a.Selected, len(a.Filtered)-1))
+	layout, err := a.Store.ReadLayout()
+	if err != nil {
+		return err
+	}
+	a.Devices, a.Layout = devices, layout
+	a.Filtered = layout.search(devices, a.Query)
+	a.Selected = max(0, min(a.Selected, len(a.labRows())-1))
 	return nil
 }
 func (a *App) selected() (Device, bool) {
-	if a.Selected < 0 || a.Selected >= len(a.Filtered) {
+	rows := a.labRows()
+	if a.Selected < 0 || a.Selected >= len(rows) || rows[a.Selected].IsFolder {
 		return Device{}, false
 	}
-	return a.Filtered[a.Selected], true
+	return rows[a.Selected].Device, true
 }
 func (a *App) active() *Session {
 	if a.View > 0 && a.View <= len(a.Sessions) {
@@ -345,12 +355,14 @@ func (a *App) handlePaste(start bool) {
 			editText(&a.Scan.Input, &a.Scan.Cursor, event, 20)
 		case a.View == 0 && a.Mode == "form":
 			a.formKey(event)
+		case a.View == 0 && a.Mode == "folder":
+			editText(&a.FolderForm.Name, &a.FolderForm.Cursor, event, 60)
 		case a.View == 0 && a.Mode == "search":
 			editText(&a.Query, &a.searchCursor, event, 100)
 		}
 	}
 	if a.View == 0 && a.Mode == "search" {
-		a.Filtered = Search(a.Devices, a.Query)
+		a.Filtered = a.Layout.search(a.Devices, a.Query)
 		a.Selected = 0
 	}
 }
@@ -549,7 +561,7 @@ func (a *App) HandleMouse(event *tcell.EventMouse) {
 		if a.View == -1 && !a.Scan.Editing {
 			a.Scan.Selected = max(0, min(len(a.Scan.Results)-1, a.Scan.Selected+delta))
 		} else if a.View == 0 && a.Mode == "list" {
-			a.Selected = max(0, min(len(a.Filtered)-1, a.Selected+delta))
+			a.Selected = max(0, min(len(a.labRows())-1, a.Selected+delta))
 		}
 	}
 }
@@ -566,7 +578,7 @@ func (a *App) pasteClipboard() {
 		}
 	} else {
 		w, h := a.Screen.Size()
-		editing := a.View == -1 && a.Scan.Editing || a.View == 0 && (a.Mode == "form" || a.Mode == "search")
+		editing := a.View == -1 && a.Scan.Editing || a.View == 0 && (a.Mode == "form" || a.Mode == "search" || a.Mode == "folder")
 		if w < 64 || h < 24 || !editing {
 			return
 		}
@@ -626,6 +638,12 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 					a.startPing()
 				}
 				a.setMessage(err, "Removed "+pending.Device.Name+".")
+			case "delete-folder":
+				err := a.Store.DeleteFolder(pending.Folder.ID)
+				if err == nil {
+					err = a.refresh()
+				}
+				a.setMessage(err, "Folder deleted; its devices are now in Lab.")
 			case "forget":
 				a.Busy = true
 				go func() { err := a.forget(a.ctx, pending.Plan, nil); a.post(resetKey{pending.Plan.Target, err}) }()
@@ -723,6 +741,9 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 		a.discoveryKey(event)
 		return
 	}
+	if a.labModeKey(event) {
+		return
+	}
 	if key == tcell.KeyEscape {
 		a.Mode = "list"
 		a.Query = ""
@@ -740,7 +761,7 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 			a.Mode = "list"
 		} else {
 			editText(&a.Query, &a.searchCursor, event, 100)
-			a.Filtered = Search(a.Devices, a.Query)
+			a.Filtered = a.Layout.search(a.Devices, a.Query)
 			a.Selected = 0
 		}
 		return
@@ -760,13 +781,41 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 	}
 	a.Message = ""
 	a.Error = false
+	folder, hasFolder := a.selectedFolder()
 	switch {
+	case r == 'F':
+		a.beginFolder(Folder{})
+	case r == 'M' && hasDevice:
+		a.Mode = "move"
+		a.Move = moveState{DeviceID: d.ID}
+	case event.Modifiers() == tcell.ModAlt && (key == tcell.KeyUp || key == tcell.KeyDown) && hasDevice:
+		direction := -1
+		if key == tcell.KeyDown {
+			direction = 1
+		}
+		a.moveDevice(d.ID, direction)
+	case hasFolder && (key == tcell.KeyEnter || key == tcell.KeyLeft || key == tcell.KeyRight || r == ' '):
+		collapsed := !folder.Collapsed
+		if key == tcell.KeyLeft {
+			collapsed = true
+		} else if key == tcell.KeyRight {
+			collapsed = false
+		}
+		a.collapseFolder(folder, collapsed)
+	case hasDevice && key == tcell.KeyLeft && a.Layout.DeviceFolders[d.ID] != "" && a.Query == "":
+		if parent, err := a.Layout.folder(a.Layout.DeviceFolders[d.ID]); err == nil {
+			a.collapseFolder(*parent, true)
+		}
+	case r == 'e' && hasFolder:
+		a.beginFolder(folder)
+	case key == tcell.KeyDelete && hasFolder:
+		a.Pending = &action{Kind: "delete-folder", Folder: folder}
 	case r == 'q':
 		a.quit()
 	case r == 'm':
 		a.Animate = !a.Animate
 	case key == tcell.KeyDown || r == 'j':
-		a.Selected = min(len(a.Filtered)-1, a.Selected+1)
+		a.Selected = min(len(a.labRows())-1, a.Selected+1)
 	case key == tcell.KeyUp || r == 'k':
 		a.Selected = max(0, a.Selected-1)
 	case r == '/':
@@ -861,8 +910,16 @@ func editText(text *string, cursor *int, event *tcell.EventKey, limit int) {
 	*text = string(chars)
 }
 func (a *App) beginForm(d Device, edit bool) {
+	folderID := a.Layout.DeviceFolders[d.ID]
+	if !edit {
+		if folder, ok := a.selectedFolder(); ok {
+			folderID = folder.ID
+		} else if selected, ok := a.selected(); ok {
+			folderID = a.Layout.DeviceFolders[selected.ID]
+		}
+	}
 	a.Mode = "form"
-	a.Form = formState{Values: [5]string{d.Name, d.Host, d.Username, strconv.Itoa(d.Port), d.Description}}
+	a.Form = formState{Values: [5]string{d.Name, d.Host, d.Username, strconv.Itoa(d.Port), d.Description}, FolderID: folderID}
 	if edit {
 		a.Form.EditID = d.ID
 	}
@@ -889,13 +946,18 @@ func (a *App) formKey(event *tcell.EventKey) {
 			a.setMessage(err, "")
 			return
 		}
+		if f.EditID == "" && f.FolderID != "" {
+			if folderErr := a.Store.PlaceDevice(saved.ID, f.FolderID); folderErr != nil {
+				err = fmt.Errorf("device saved, but folder assignment failed: %w", folderErr)
+			}
+		}
 		a.Mode = "list"
 		a.Query = ""
-		err = a.refresh()
-		for i, d := range a.Filtered {
-			if d.ID == saved.ID {
-				a.Selected = i
-			}
+		if refreshErr := a.refresh(); err == nil {
+			err = refreshErr
+		}
+		if err == nil {
+			err = a.revealDevice(saved.ID)
 		}
 		a.startPing()
 		a.setMessage(err, "Saved "+saved.Name+".")
@@ -975,11 +1037,10 @@ func (a *App) discoveryKey(event *tcell.EventKey) {
 		a.activate(0)
 		a.Query = ""
 		a.refresh()
-		for i, d := range a.Filtered {
+		for _, d := range a.Devices {
 			if d.Host == found.Host && d.Port == 22 {
-				a.Selected = i
 				a.Mode = "list"
-				a.Message = "Selected saved device. Press Enter to connect."
+				a.setMessage(a.revealDevice(d.ID), "Selected saved device. Press Enter to connect.")
 				return
 			}
 		}
