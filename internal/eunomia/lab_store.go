@@ -204,13 +204,35 @@ func (s Store) MoveDevice(id string, direction int) error {
 			return err
 		}
 		index := slices.Index(layout.Order, device.ID)
+		currentFolder := layout.DeviceFolders[device.ID]
 		for next := index + direction; next >= 0 && next < len(layout.Order); next += direction {
-			if layout.DeviceFolders[layout.Order[next]] == layout.DeviceFolders[device.ID] {
+			if layout.DeviceFolders[layout.Order[next]] == currentFolder {
 				layout.Order[index], layout.Order[next] = layout.Order[next], layout.Order[index]
 				return nil
 			}
 		}
-		return errors.New("device is already at the edge of this group")
+		// Lab displays unfiled devices followed by each folder and its children.
+		// At a group's boundary, moving crosses a heading and changes membership.
+		group := slices.IndexFunc(layout.Folders, func(folder Folder) bool { return folder.ID == currentFolder })
+		target := group + direction // -1 is the unfiled Lab group.
+		if target < -1 || target >= len(layout.Folders) {
+			return errors.New("device is already at the edge of the Lab list")
+		}
+		if target == -1 {
+			delete(layout.DeviceFolders, device.ID)
+		} else {
+			layout.DeviceFolders[device.ID] = layout.Folders[target].ID
+			layout.Folders[target].Collapsed = false
+		}
+		layout.Order = slices.Delete(layout.Order, index, index+1)
+		if direction > 0 {
+			// Crossing down enters directly below the next heading, before its children.
+			layout.Order = slices.Insert(layout.Order, 0, device.ID)
+		} else {
+			// Crossing up places the device after the preceding group's children.
+			layout.Order = append(layout.Order, device.ID)
+		}
+		return nil
 	})
 }
 

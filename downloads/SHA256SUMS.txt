@@ -1,2 +1,2 @@
-95b605cd8f2e8cc784a093e80326eec1cb28e46d466e7800f0eda65ea9caecc4  eunomia-windows.zip
-3d57892f85e457e24c08643bf77e39639b94ccc6b8d3eb66fe495de1081fe72a  eunomia-linux.tar.gz
+a307b76fc6936d4dfc1bbaa9f3a00b3044a7906c794e09a8edcfd6af28285c84  eunomia-windows.zip
+fff6ca57bef8c3c94388d7c11684a0eecc7a7fb21166a5832674683e005ce2bd  eunomia-linux.tar.gz

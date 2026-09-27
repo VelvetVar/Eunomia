@@ -35,7 +35,7 @@ Lab is your saved device list and occupies tab `0`.
 | `e` | Edit the selected device |
 | `M` | Open Move: up, down, another folder, or back to Lab |
 | `→` on a device | Open the folder picker for that existing device |
-| `Alt+↑` / `Alt+↓` | Move the selected device up / down within its group |
+| `Alt+↑` / `Alt+↓` | Move the selected device up / down, including across folder headings |
 | `F` | Create a folder |
 | `Enter` / `Space` on a folder | Collapse or expand its devices |
 | `←` / `→` on a folder | Collapse / expand |
@@ -65,9 +65,11 @@ Deleting a profile doesn't edit the remote device or remove its SSH fingerprint.
 
 ### Folders and device order
 
-Press `F`, type a folder name, and press `Enter`. Select a device and press `M` to move it up or down within its current group, put it inside a folder, or return it to Lab. `Alt+↑` and `Alt+↓` reorder directly. Folders appear below devices that are not in a folder. Moving a device into another group places it at the end of that group.
+Press `F`, type a folder name, and press `Enter`. Select a device and press `M` to move it up or down in Lab, put it inside a folder, or return it to Lab. `Alt+↑` and `Alt+↓` move directly. Folders appear below devices that are not in a folder.
 
-To put an existing device in a folder, select the device, press `→`, choose `Move to folder: <name>` with up/down arrows, and press `Enter`. The picker shows its current location. The destination folder expands and the device appears beneath it, indented four spaces from devices at the Lab level:
+Move down from the last device above a folder to place it directly beneath that folder's heading as its first member. Move up from a folder's first device to place it above the heading: it becomes the last member of the preceding folder, or returns to Lab above the first folder. Crossing into a collapsed folder expands it. The edge-of-list message appears only at the top or bottom of the full Lab list, not at folder boundaries. These moves use the full Lab order even when started from search results.
+
+To choose a destination directly, select the device, press `→`, choose `Move to folder: <name>` with up/down arrows, and press `Enter`. The picker shows its current location and places the device at the end of the destination folder. The destination folder expands and the device appears beneath it, indented four spaces from devices at the Lab level:
 
 ```text
 Router

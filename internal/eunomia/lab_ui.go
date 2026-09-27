@@ -102,6 +102,7 @@ func (a *App) collapseFolder(folder Folder, collapsed bool) {
 }
 
 func (a *App) moveDevice(id string, direction int) {
+	previousFolder := a.Layout.DeviceFolders[id]
 	err := a.Store.MoveDevice(id, direction)
 	if err == nil {
 		a.Query = ""
@@ -110,7 +111,11 @@ func (a *App) moveDevice(id string, direction int) {
 			err = a.revealDevice(id)
 		}
 	}
-	a.setMessage(err, "Device order saved.")
+	message := "Device order saved."
+	if err == nil && a.Layout.DeviceFolders[id] != previousFolder {
+		message = "Moved to " + a.deviceLocation(id) + "."
+	}
+	a.setMessage(err, message)
 }
 
 func (a *App) beginFolder(folder Folder) {
@@ -215,7 +220,7 @@ func (a *App) drawMove(w, h, top int) {
 		a.put(3, top+2, device.Name, whiteStyle, w-6)
 	}
 	a.put(3, top+3, "Current location: "+a.deviceLocation(a.Move.DeviceID), dimStyle, w-6)
-	choices := []string{"Move up in this group", "Move down in this group", "Move to Lab (no folder)"}
+	choices := []string{"Move up in Lab", "Move down in Lab", "Move to Lab (no folder)"}
 	for _, folder := range a.Layout.Folders {
 		choices = append(choices, "Move to folder: "+folder.Name)
 	}
@@ -225,6 +230,8 @@ func (a *App) drawMove(w, h, top int) {
 		if len(a.Layout.Folders) == 0 {
 			a.put(3, top+4, "No folders yet. Esc, then F to create one.", dimStyle, w-6)
 		}
+	} else {
+		a.put(3, top+4, "Crossing a folder heading changes membership.", dimStyle, w-6)
 	}
 	visible := max(1, h-top-9)
 	offset := max(first, a.Move.Selected-visible+1)

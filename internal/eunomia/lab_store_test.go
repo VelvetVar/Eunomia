@@ -124,6 +124,103 @@ func TestLabLayoutSurvivesProfileEditsAndPrunesRemovedDevices(t *testing.T) {
 	}
 }
 
+func TestLabMoveThroughFolderBoundaries(t *testing.T) {
+	store := Store{t.TempDir()}
+	devices := []Device{}
+	for _, name := range []string{"A", "B", "C", "D", "E"} {
+		devices = append(devices, saveLabDevice(t, store, name))
+	}
+	folders := []Folder{}
+	for _, name := range []string{"Servers", "Empty", "Network"} {
+		folder, err := store.SaveFolder(name, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		folders = append(folders, folder)
+	}
+	for i, folder := range []string{"", "", folders[0].ID, folders[0].ID, folders[2].ID} {
+		if folder == "" {
+			continue
+		}
+		if err := store.PlaceDevice(devices[i].ID, folder); err != nil {
+			t.Fatal(err)
+		}
+	}
+	original, _ := os.ReadFile(store.Path())
+	for _, folder := range folders {
+		if err := store.CollapseFolder(folder.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	steps := []struct {
+		direction int
+		groups    [4]string // Lab, Servers, Empty, Network, in display order.
+		edge      bool
+	}{
+		{1, [4]string{"A", "BCD", "", "E"}, false},
+		{1, [4]string{"A", "CBD", "", "E"}, false},
+		{1, [4]string{"A", "CDB", "", "E"}, false},
+		{1, [4]string{"A", "CD", "B", "E"}, false},
+		{1, [4]string{"A", "CD", "", "BE"}, false},
+		{1, [4]string{"A", "CD", "", "EB"}, false},
+		{1, [4]string{"A", "CD", "", "EB"}, true},
+		{-1, [4]string{"A", "CD", "", "BE"}, false},
+		{-1, [4]string{"A", "CD", "B", "E"}, false},
+		{-1, [4]string{"A", "CDB", "", "E"}, false},
+		{-1, [4]string{"A", "CBD", "", "E"}, false},
+		{-1, [4]string{"A", "BCD", "", "E"}, false},
+		{-1, [4]string{"AB", "CD", "", "E"}, false},
+		{-1, [4]string{"BA", "CD", "", "E"}, false},
+		{-1, [4]string{"BA", "CD", "", "E"}, true},
+	}
+	for i, step := range steps {
+		// Also exercise entering collapsed folders while moving up.
+		if i == 8 || i == 9 {
+			if err := store.CollapseFolder(folders[9-i].ID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		before, _ := os.ReadFile(store.LayoutPath())
+		err := store.MoveDevice(devices[1].ID, step.direction)
+		if (err != nil) != step.edge {
+			t.Fatalf("step %d: unexpected edge result: %v", i, err)
+		}
+		layout, err := (Store{store.Directory}).ReadLayout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got [4]string
+		for j, folder := range []string{"", folders[0].ID, folders[1].ID, folders[2].ID} {
+			for _, id := range layoutIDs(layout, devices, folder) {
+				device, err := Find(devices, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got[j] += device.Name
+			}
+		}
+		if got != step.groups {
+			t.Fatalf("step %d: groups %v, want %v", i, got, step.groups)
+		}
+		if folderID := layout.DeviceFolders[devices[1].ID]; folderID != "" {
+			folder, err := layout.folder(folderID)
+			if err != nil || folder.Collapsed {
+				t.Fatalf("step %d: destination was not expanded", i)
+			}
+		}
+		if step.edge {
+			after, _ := os.ReadFile(store.LayoutPath())
+			if !bytes.Equal(before, after) {
+				t.Fatal("edge error changed the saved layout")
+			}
+		}
+	}
+	after, _ := os.ReadFile(store.Path())
+	if !bytes.Equal(original, after) {
+		t.Fatal("moving across folders changed device profiles")
+	}
+}
+
 func TestLabLayoutValidationAndLockPreserveOriginalFiles(t *testing.T) {
 	store := Store{t.TempDir()}
 	device := saveLabDevice(t, store, "A")

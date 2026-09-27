@@ -124,6 +124,64 @@ func TestLabAddInsideFolderAndMoveBackToRoot(t *testing.T) {
 	}
 }
 
+func TestLabMoveAcrossNewFolderHeading(t *testing.T) {
+	for _, shortcut := range []bool{false, true} {
+		t.Run(fmt.Sprintf("shortcut=%t", shortcut), func(t *testing.T) {
+			a, screen := uiFixture(t)
+			alpha := saveLabDevice(t, a.Store, "Alpha")
+			beta := saveLabDevice(t, a.Store, "Beta")
+			if err := a.refresh(); err != nil {
+				t.Fatal(err)
+			}
+			typeText(a, "FServers")
+			press(a, tcell.KeyEnter)
+			folder, ok := a.selectedFolder()
+			if !ok {
+				t.Fatal("new folder not selected", a.Message)
+			}
+			press(a, tcell.KeyUp) // The last device is immediately above the new folder.
+			move := func(down bool) {
+				if shortcut {
+					key := tcell.KeyUp
+					if down {
+						key = tcell.KeyDown
+					}
+					a.HandleKey(tcell.NewEventKey(key, 0, tcell.ModAlt))
+				} else {
+					typeText(a, "M")
+					if down {
+						press(a, tcell.KeyDown)
+					}
+					press(a, tcell.KeyEnter)
+				}
+			}
+			move(true)
+			if a.Error || a.Layout.DeviceFolders[beta.ID] != folder.ID {
+				t.Fatal("Move down stopped at the folder instead of entering it", a.Message)
+			}
+			rows := a.labRows()
+			if len(rows) != 3 || rows[0].Device.ID != alpha.ID || rows[1].Folder.ID != folder.ID || rows[1].Count != 1 || rows[2].Device.ID != beta.ID || a.Selected != 2 {
+				t.Fatal("moving beneath the folder lost ordering or selection", rows)
+			}
+			a.selectFolder(folder.ID)
+			a.Draw()
+			if !strings.Contains(screenText(screen), "\n         Beta") {
+				t.Fatal("moved device was not indented under the folder")
+			}
+			press(a, tcell.KeyEnter)
+			if len(a.labRows()) != 2 {
+				t.Fatal("moved device did not collapse with its folder")
+			}
+			press(a, tcell.KeyEnter)
+			a.selectDevice(beta.ID)
+			move(false)
+			if a.Error || a.Layout.DeviceFolders[beta.ID] != "" || a.labRows()[1].Device.ID != beta.ID || a.Selected != 1 {
+				t.Fatal("Move up did not return the first child above its folder", a.Message)
+			}
+		})
+	}
+}
+
 func TestLabFolderPickerMovesExistingDevices(t *testing.T) {
 	a, screen := uiFixture(t)
 	device := saveLabDevice(t, a.Store, "Atlas")
@@ -153,7 +211,7 @@ func TestLabFolderPickerMovesExistingDevices(t *testing.T) {
 	press(a, tcell.KeyRight)
 	a.Draw()
 	view := screenText(screen)
-	if !strings.Contains(view, "MOVE TO FOLDER") || !strings.Contains(view, "Current location: Lab (no folder)") || strings.Contains(view, "Move up in this group") {
+	if !strings.Contains(view, "MOVE TO FOLDER") || !strings.Contains(view, "Current location: Lab (no folder)") || strings.Contains(view, "Move up in Lab") {
 		t.Fatal("Right did not open the folder picker", view)
 	}
 	press(a, tcell.KeyDown)
@@ -326,9 +384,19 @@ func TestNativeLabOrganization(t *testing.T) {
 		folderID = layout.Folders[0].ID
 		return strings.Contains(text(), "Servers (0)")
 	})
-	session.SendLiteral("/Beta\r\x1b[C")
-	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "MOVE TO FOLDER") })
-	session.SendLiteral("\r")
+	session.SendLiteral("/Beta\rM")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "MOVE DEVICE") })
+	session.SendLiteral("\x1b[B\r")
+	waitUntil(t, 3*time.Second, func() bool {
+		layout, err := store.ReadLayout()
+		return err == nil && layout.DeviceFolders[beta.ID] == folderID && strings.Contains(text(), "Servers (1)")
+	})
+	session.SendLiteral("M\r")
+	waitUntil(t, 3*time.Second, func() bool {
+		layout, err := store.ReadLayout()
+		return err == nil && layout.DeviceFolders[beta.ID] == "" && strings.Contains(text(), "Servers (0)")
+	})
+	session.SendLiteral("M\x1b[B\r")
 	waitUntil(t, 3*time.Second, func() bool {
 		layout, err := store.ReadLayout()
 		return err == nil && layout.DeviceFolders[beta.ID] == folderID && strings.Contains(text(), "Servers (1)")
