@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 )
@@ -39,6 +40,10 @@ type preparedKey struct {
 type resetKey struct {
 	Target string
 	Err    error
+}
+type sessionMark struct {
+	Unread, Exited bool
+	Failure        string
 }
 type scanState struct {
 	Ranges                                           []ScanRange
@@ -77,14 +82,15 @@ type App struct {
 	ctx                  context.Context
 	cancel               context.CancelFunc
 	messages             chan any
-	wake                 chan *Session
-	sessionMarks         map[*Session]string
+	wake                 chan struct{}
+	sessionMarks         map[*Session]sessionMark
 	pingCancel           context.CancelFunc
 	keyGeneration        int
 	keyPlan              *HostKeyPlan
 	paste                bool
 	pasteBuffer          strings.Builder
 	pasteSession         *Session
+	pasteTooLarge        bool
 	clipboard            func() (string, error)
 	writeClipboard       func(string) error
 	selection            *terminalSelection
@@ -98,7 +104,7 @@ type App struct {
 
 func NewApp(screen tcell.Screen, store Store, animate bool) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	a := &App{Screen: screen, Store: store, Mode: "list", Animate: animate, Angle: .35, Reach: map[string]Reachability{}, ctx: ctx, cancel: cancel, messages: make(chan any, 256), wake: make(chan *Session, 128), sessionMarks: map[*Session]string{}, opener: OpenSession, prepare: PrepareHostKeyReset, forget: ForgetHostKey}
+	a := &App{Screen: screen, Store: store, Mode: "list", Animate: animate, Angle: .35, Reach: map[string]Reachability{}, ctx: ctx, cancel: cancel, messages: make(chan any, 256), wake: make(chan struct{}, 1), sessionMarks: map[*Session]sessionMark{}, opener: OpenSession, prepare: PrepareHostKeyReset, forget: ForgetHostKey}
 	a.clipboard = systemClipboard
 	a.writeClipboard = systemClipboardWriter
 	diagnostics, logErr := NewDiagnostics(store.Directory)
@@ -128,6 +134,15 @@ func (a *App) refresh() error {
 		return err
 	}
 	a.Devices, a.Layout = devices, layout
+	known := make(map[string]bool, len(devices))
+	for _, device := range devices {
+		known[device.ID] = true
+	}
+	for id := range a.Reach {
+		if !known[id] {
+			delete(a.Reach, id)
+		}
+	}
 	a.Filtered = layout.search(devices, a.Query)
 	a.Selected = max(0, min(a.Selected, len(a.labRows())-1))
 	return nil
@@ -151,9 +166,11 @@ func (a *App) post(message any) {
 	case <-a.ctx.Done():
 	}
 }
-func (a *App) notify(s *Session) {
+func (a *App) notify(_ *Session) {
+	// The session owns its latest state. Coalesce wakeups, not session identities:
+	// a busy tab must not crowd another tab's exit notification out of the queue.
 	select {
-	case a.wake <- s:
+	case a.wake <- struct{}{}:
 	default:
 	}
 }
@@ -242,25 +259,32 @@ func (a *App) Run() error {
 	pingTimer := time.NewTicker(time.Minute)
 	defer pingTimer.Stop()
 	animation := time.NewTicker(100 * time.Millisecond)
+	animation.Stop()
 	defer animation.Stop()
-	var renderTimer *time.Timer
+	var animationTick <-chan time.Time
+	renderTimer := time.NewTimer(time.Hour)
+	renderTimer.Stop()
+	defer renderTimer.Stop()
 	var render <-chan time.Time
 	dirty := false
 	drawSoon := func() {
 		dirty = true
 		if render == nil {
-			renderTimer = time.NewTimer(16 * time.Millisecond)
+			renderTimer.Reset(16 * time.Millisecond)
 			render = renderTimer.C
 		}
 	}
-	defer func() {
-		if renderTimer != nil {
-			renderTimer.Stop()
-		}
-	}()
 	a.startPing()
 	a.Draw()
 	for {
+		animate := a.Animate && a.View == 0 && a.Mode == "list" && !a.HelpOpen && a.Pending == nil
+		if animate && animationTick == nil {
+			animation.Reset(100 * time.Millisecond)
+			animationTick = animation.C
+		} else if !animate && animationTick != nil {
+			animation.Stop()
+			animationTick = nil
+		}
 		select {
 		case <-a.ctx.Done():
 			return nil
@@ -284,17 +308,17 @@ func (a *App) Run() error {
 		case message := <-a.messages:
 			a.handleMessage(message)
 			drawSoon()
-		case s := <-a.wake:
-			if a.sessionChanged(s) {
-				drawSoon()
+		case <-a.wake:
+			for _, s := range a.Sessions {
+				if a.sessionChanged(s) {
+					drawSoon()
+				}
 			}
 		case <-pingTimer.C:
 			a.startPing()
-		case <-animation.C:
-			if a.Animate && a.View == 0 && a.Mode == "list" {
-				a.Angle += .012
-				drawSoon()
-			}
+		case <-animationTick:
+			a.Angle += .012
+			drawSoon()
 		case <-render:
 			render = nil
 			if dirty {
@@ -310,12 +334,15 @@ func (a *App) sessionChanged(s *Session) bool {
 		return false
 	}
 	s.mu.Lock()
-	mark := fmt.Sprint(s.Unread, s.Exited)
+	mark := sessionMark{s.Unread, s.Exited, s.Failure}
 	s.mu.Unlock()
-	changed := a.active() == s || a.sessionMarks[s] != mark
+	previous, known := a.sessionMarks[s]
+	changed := !known || previous != mark || a.active() == s && mark.Unread
 	a.sessionMarks[s] = mark
 	return changed
 }
+
+const maxPasteBytes = 1 << 20
 
 func (a *App) handlePaste(start bool) {
 	if start {
@@ -323,6 +350,7 @@ func (a *App) handlePaste(start bool) {
 		a.paste = true
 		a.pasteSession = a.active()
 		a.pasteBuffer.Reset()
+		a.pasteTooLarge = false
 		return
 	}
 	if !a.paste {
@@ -334,6 +362,10 @@ func (a *App) handlePaste(start bool) {
 	session := a.pasteSession
 	a.pasteSession = nil
 	if a.Pending != nil || a.Busy || a.HelpOpen {
+		return
+	}
+	if a.pasteTooLarge {
+		a.pasteError = "Paste too large (maximum 1 MiB); nothing pasted."
 		return
 	}
 	if session != nil {
@@ -442,7 +474,9 @@ func (a *App) closeSession(target *Session) {
 	for i, s := range a.Sessions {
 		if s == target {
 			s.Close()
-			a.Sessions = append(a.Sessions[:i], a.Sessions[i+1:]...)
+			// Delete clears the removed slot so the backing array cannot retain
+			// a closed session's emulator and scrollback until another tab opens.
+			a.Sessions = slices.Delete(a.Sessions, i, i+1)
 			if a.View == i+1 {
 				a.View = 0
 			} else if a.View > i+1 {
@@ -597,7 +631,11 @@ func (a *App) pasteClipboard() {
 	// Reuse bracketed paste routing so clipboard text cannot invoke shortcuts,
 	// confirm dialogs, or save forms. Never log clipboard contents.
 	a.handlePaste(true)
-	a.pasteBuffer.WriteString(text)
+	if len(text) > maxPasteBytes {
+		a.pasteTooLarge = true
+	} else {
+		a.pasteBuffer.WriteString(text)
+	}
 	a.handlePaste(false)
 }
 func (a *App) HandleKey(event *tcell.EventKey) {
@@ -610,14 +648,28 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 		}
 	}
 	if a.paste {
+		if a.pasteTooLarge {
+			return
+		}
 		switch key {
 		case tcell.KeyRune:
-			a.pasteBuffer.WriteRune(r)
 		case tcell.KeyEnter:
-			a.pasteBuffer.WriteByte('\n')
+			r = '\n'
 		case tcell.KeyTAB:
-			a.pasteBuffer.WriteByte('\t')
+			r = '\t'
+		default:
+			return
 		}
+		size := utf8.RuneLen(r)
+		if size < 0 {
+			size = utf8.RuneLen(utf8.RuneError)
+		}
+		if a.pasteBuffer.Len()+size > maxPasteBytes {
+			a.pasteTooLarge = true
+			a.pasteBuffer.Reset()
+			return
+		}
+		a.pasteBuffer.WriteRune(r)
 		return
 	}
 	if a.HelpOpen {
@@ -963,15 +1015,16 @@ func (a *App) formKey(event *tcell.EventKey) {
 			a.setMessage(errors.New("SSH port must be a number"), "")
 			return
 		}
-		saved, err := a.Store.Save(Device{Name: f.Values[0], Host: f.Values[1], Username: f.Values[2], Port: port, Description: f.Values[4]}, f.EditID)
+		device := Device{Name: f.Values[0], Host: f.Values[1], Username: f.Values[2], Port: port, Description: f.Values[4]}
+		var saved Device
+		if f.EditID == "" {
+			saved, err = a.Store.SaveInFolder(device, f.FolderID)
+		} else {
+			saved, err = a.Store.Save(device, f.EditID)
+		}
 		if err != nil {
 			a.setMessage(err, "")
 			return
-		}
-		if f.EditID == "" && f.FolderID != "" {
-			if folderErr := a.Store.PlaceDevice(saved.ID, f.FolderID); folderErr != nil {
-				err = fmt.Errorf("device saved, but folder assignment failed: %w", folderErr)
-			}
 		}
 		a.Mode = "list"
 		a.Query = ""

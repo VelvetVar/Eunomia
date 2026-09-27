@@ -34,7 +34,12 @@ type Control struct {
 	listener  net.Listener
 	once      sync.Once
 	stop      func()
+	slots     chan struct{}
 }
+
+const maxControlConnections = 16
+
+var errAlreadyRunning = errors.New("Application is already running")
 
 func readRunState(directory string) (runState, error) {
 	var state runState
@@ -78,15 +83,8 @@ func StartControl(directory string, stop func()) (*Control, error) {
 	file := filepath.Join(directory, "running.json")
 	written := false
 	for attempt := 0; attempt < 2; attempt++ {
-		handle, err := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		err := writeNewFile(file, bytes, 0600)
 		if err == nil {
-			_, err = handle.Write(bytes)
-			handle.Close()
-			if err != nil {
-				os.Remove(file)
-				listener.Close()
-				return nil, err
-			}
 			written = true
 			break
 		}
@@ -105,7 +103,7 @@ func StartControl(directory string, stop func()) (*Control, error) {
 		}
 		if processAlive(previous.PID) {
 			listener.Close()
-			return nil, errors.New("Eunomia is already running; use its terminal or run eunomia down first")
+			return nil, errAlreadyRunning
 		}
 		removeRunState(directory, previous.Token)
 	}
@@ -113,7 +111,7 @@ func StartControl(directory string, stop func()) (*Control, error) {
 		listener.Close()
 		return nil, errors.New("another Eunomia instance is starting; retry in a moment")
 	}
-	c := &Control{directory: directory, state: state, listener: listener, stop: stop}
+	c := &Control{directory: directory, state: state, listener: listener, stop: stop, slots: make(chan struct{}, maxControlConnections)}
 	go c.serve()
 	return c, nil
 }
@@ -123,7 +121,16 @@ func (c *Control) serve() {
 		if err != nil {
 			return
 		}
+		// Bound outstanding requests before starting a goroutine. Idle clients
+		// already have a deadline; excess connections are rejected immediately.
+		select {
+		case c.slots <- struct{}{}:
+		default:
+			conn.Close()
+			continue
+		}
 		go func() {
+			defer func() { <-c.slots }()
 			defer conn.Close()
 			conn.SetDeadline(time.Now().Add(3 * time.Second))
 			line, err := bufio.NewReader(io.LimitReader(conn, 4097)).ReadBytes('\n')

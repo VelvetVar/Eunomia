@@ -162,48 +162,56 @@ func (l *LabLayout) setItems(parent string, items []string) {
 	}
 }
 
-func (l LabLayout) items(parent string, devices []Device) []string {
-	valid := map[string]bool{}
+// Reconcile every group together; scanning/sorting all devices separately for
+// each folder made large Labs quadratic in both work and temporary allocation.
+func (l LabLayout) orderedGroups(devices []Device) map[string][]string {
+	parents := make(map[string]string, len(devices)+len(l.Folders))
 	for _, device := range devices {
-		if l.DeviceFolders[device.ID] == parent {
-			valid["device:"+device.ID] = true
-		}
+		parents["device:"+device.ID] = l.DeviceFolders[device.ID]
 	}
+	groups := make(map[string][]string, len(l.Folders)+1)
+	groups[""] = []string{}
 	for _, folder := range l.Folders {
-		if folder.ParentID == parent {
-			valid["folder:"+folder.ID] = true
+		parents["folder:"+folder.ID] = folder.ParentID
+		groups[folder.ID] = []string{}
+	}
+	for parent := range groups {
+		for _, entry := range l.storedItems(parent) {
+			if owner, ok := parents[entry]; ok && owner == parent {
+				groups[parent] = append(groups[parent], entry)
+				delete(parents, entry)
+			}
 		}
 	}
-	items := []string{}
-	for _, entry := range l.storedItems(parent) {
-		if valid[entry] {
-			items = append(items, entry)
-			delete(valid, entry)
+	// Most saves already have complete orders. Sort only when devices are new
+	// or an older profile needs its missing order entries filled in.
+	if len(parents) > 0 {
+		missing := map[string][]string{}
+		for _, device := range l.search(devices, "") {
+			entry := "device:" + device.ID
+			if parent, ok := parents[entry]; ok {
+				missing[parent] = append(missing[parent], entry)
+			}
 		}
-	}
-	for _, device := range l.search(devices, "") {
-		entry := "device:" + device.ID
-		if valid[entry] {
+		for parent, entries := range missing {
+			items := groups[parent]
 			position := 0
 			for i, item := range items {
 				if strings.HasPrefix(item, "device:") {
 					position = i + 1
 				}
 			}
-			items = slices.Insert(items, position, entry)
-			delete(valid, entry)
+			groups[parent] = slices.Insert(items, position, entries...)
 		}
 	}
 	for _, folder := range l.Folders {
 		entry := "folder:" + folder.ID
-		if valid[entry] {
-			items = append(items, entry)
+		if parent, ok := parents[entry]; ok {
+			groups[parent] = append(groups[parent], entry)
 		}
 	}
-	return items
+	return groups
 }
-
-func (l LabLayout) rootOrder(devices []Device) []string { return l.items("", devices) }
 
 // Reconcile saved order without changing membership on reload or expansion.
 // Only devices affected by a move may join an expanded heading they pass.
@@ -221,10 +229,7 @@ func (l *LabLayout) normalize(devices []Device, adoptIDs ...string) {
 			delete(l.DeviceFolders, id)
 		}
 	}
-	groups := map[string][]string{"": l.items("", devices)}
-	for _, folder := range l.Folders {
-		groups[folder.ID] = l.items(folder.ID, devices)
-	}
+	groups := l.orderedGroups(devices)
 	l.FolderOrder = map[string][]string{}
 	l.Order = []string{}
 	var visit func(string)
@@ -377,19 +382,23 @@ func (s Store) PlaceDevice(id, parent string) error {
 				return err
 			}
 		}
-		if l.DeviceFolders[device.ID] != parent {
-			index := 0
-			for _, item := range l.storedItems(parent) {
-				if strings.HasPrefix(item, "folder:") {
-					break
-				}
-				index++
-			}
-			l.placeDevice(device.ID, parent, index)
-		}
-		l.expandAncestors(parent)
+		l.placeInFolder(device.ID, parent)
 		return nil
 	})
+}
+
+func (l *LabLayout) placeInFolder(id, parent string) {
+	if l.DeviceFolders[id] != parent {
+		index := 0
+		for _, item := range l.storedItems(parent) {
+			if strings.HasPrefix(item, "folder:") {
+				break
+			}
+			index++
+		}
+		l.placeDevice(id, parent, index)
+	}
+	l.expandAncestors(parent)
 }
 
 func (s Store) MoveDevice(id string, direction int) error {

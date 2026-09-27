@@ -1,10 +1,12 @@
 package eunomia
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"github.com/gdamore/tcell/v2"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +57,7 @@ func TestMouseWheelListsAndDialogs(t *testing.T) {
 	for i := range a.Filtered {
 		a.Filtered[i].ID = fmt.Sprint(i)
 	}
+	a.Layout.normalize(a.Filtered)
 	a.Scan.Results = make([]Found, 8)
 	wheel := func(button tcell.ButtonMask) { a.HandleMouse(tcell.NewEventMouse(5, 10, button, tcell.ModNone)) }
 	wheel(tcell.WheelDown)
@@ -429,4 +432,105 @@ func TestRightClickClipboardFailureAndExitedSession(t *testing.T) {
 	s.Close()
 	a.clipboard = func() (string, error) { t.Fatal("read clipboard for an exited session"); return "", nil }
 	rightClick(a)
+}
+
+func TestDeviceCreationAndFolderAssignmentAreAtomic(t *testing.T) {
+	a, _ := uiFixture(t)
+	folder, err := a.Store.SaveFolder("Servers", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.refresh(); err != nil {
+		t.Fatal(err)
+	}
+	a.selectFolder(folder.ID)
+	a.beginForm(fixtureDevice(), false)
+	// Another writer deletes the destination while this form is still open.
+	if err := a.Store.DeleteFolder(folder.ID); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(a.Store.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	press(a, tcell.KeyEnter)
+	after, err := os.ReadFile(a.Store.Path())
+	if err != nil || !bytes.Equal(before, after) || !a.Error || a.Mode != "form" {
+		t.Fatal("failed folder assignment left a partial device or closed the form", a.Message, err)
+	}
+	// Retrying at the root saves the original form exactly once.
+	a.Form.FolderID = ""
+	press(a, tcell.KeyEnter)
+	if a.Error || len(a.Devices) != 1 || a.Devices[0].Name != fixtureDevice().Name {
+		t.Fatal("could not recover from a removed destination", a.Message)
+	}
+}
+
+func TestSessionNotificationsCoalesceWithoutLosingOtherTabs(t *testing.T) {
+	a, _ := uiFixture(t)
+	one := &Session{}
+	two := &Session{}
+	a.Sessions = []*Session{one, two}
+	defer func() { a.Sessions = nil }() // State-only sessions have no terminal to close.
+	a.sessionChanged(one)
+	a.sessionChanged(two)
+	one.Unread = true
+	for range 1000 {
+		a.notify(one)
+	}
+	two.Exited = true
+	a.notify(two)
+	if len(a.wake) != 1 {
+		t.Fatal("output notifications were not coalesced")
+	}
+	<-a.wake
+	if !a.sessionChanged(one) || !a.sessionChanged(two) {
+		t.Fatal("one tab's output hid another tab's exit")
+	}
+	if a.sessionChanged(one) || a.sessionChanged(two) {
+		t.Fatal("unchanged background sessions requested another redraw")
+	}
+	two.Failure = "input failed"
+	if !a.sessionChanged(two) {
+		t.Fatal("a new session error did not request a redraw")
+	}
+}
+
+func TestClosingTabReleasesItsBackingArrayReference(t *testing.T) {
+	a, _ := uiFixture(t)
+	s := NewSession(fixtureDevice(), newFakeTerminal(), 80, 24, func(*Session) {})
+	a.Sessions = []*Session{s}
+	a.closeSession(s)
+	if len(a.Sessions) != 0 || a.Sessions[:cap(a.Sessions)][0] != nil {
+		t.Fatal("closed tab's scrollback is still retained by the session array")
+	}
+}
+
+func TestOversizedPasteIsDiscardedWhole(t *testing.T) {
+	for _, clipboard := range []bool{false, true} {
+		t.Run(fmt.Sprint(clipboard), func(t *testing.T) {
+			a, _, _, terminal := selectionFixture(t, "")
+			if clipboard {
+				a.clipboard = func() (string, error) { return strings.Repeat("x", maxPasteBytes+1), nil }
+				a.pasteClipboard()
+			} else {
+				a.handlePaste(true)
+				for range maxPasteBytes / 3 {
+					a.HandleKey(runeKey('界'))
+				}
+				a.HandleKey(runeKey('界'))
+				if a.pasteBuffer.Len() > maxPasteBytes {
+					t.Fatal("paste exceeded its memory bound")
+				}
+				a.handlePaste(false)
+			}
+			if !strings.Contains(a.pasteError, "nothing pasted") || terminal.inputText() != "" {
+				t.Fatal("oversized paste was truncated or sent to SSH", a.pasteError)
+			}
+			a.handlePaste(true)
+			typeText(a, "normal paste")
+			a.handlePaste(false)
+			waitUntil(t, time.Second, func() bool { return terminal.inputText() == "normal paste" })
+		})
+	}
 }

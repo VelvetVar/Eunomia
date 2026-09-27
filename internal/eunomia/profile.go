@@ -103,19 +103,7 @@ func (s Store) mutateData(change func(*deviceFile) error) error {
 	}
 	if legacy {
 		if original, err := os.ReadFile(s.Path()); err == nil {
-			backup, err := os.OpenFile(s.Path()+".v1-backup", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-			if err == nil {
-				_, writeErr := backup.Write(original)
-				closeErr := backup.Close()
-				if writeErr != nil {
-					os.Remove(s.Path() + ".v1-backup")
-					return writeErr
-				}
-				if closeErr != nil {
-					os.Remove(s.Path() + ".v1-backup")
-					return closeErr
-				}
-			} else if !errors.Is(err, os.ErrExist) {
+			if err := writeNewFile(s.Path()+".v1-backup", original, 0600); err != nil && !errors.Is(err, os.ErrExist) {
 				return err
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -135,17 +123,11 @@ func (s Store) Export(path string) error {
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
+	if err := writeNewFile(path, append(raw, '\n'), 0600); errors.Is(err, os.ErrExist) {
 		return fmt.Errorf("choose a new export filename: %w", err)
+	} else {
+		return err
 	}
-	_, writeErr := file.Write(append(raw, '\n'))
-	closeErr := file.Close()
-	if writeErr != nil {
-		os.Remove(path)
-		return writeErr
-	}
-	return closeErr
 }
 
 func (s Store) Import(path string) error {

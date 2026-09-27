@@ -3,6 +3,7 @@ package eunomia
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -247,5 +248,22 @@ func TestCLIExportImport(t *testing.T) {
 	devices, layout, err := store.ReadAll()
 	if err != nil || len(devices) != 1 || layout.DeviceFolders[device.ID] != folder.ID {
 		t.Fatal("CLI import lost folder membership", err)
+	}
+}
+
+func TestExportNeverReplacesExistingFile(t *testing.T) {
+	store := Store{t.TempDir()}
+	saveLabDevice(t, store, "Existing")
+	path := filepath.Join(t.TempDir(), "export.json")
+	original := []byte("keep this file exactly as it is")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Export(path); !errors.Is(err, os.ErrExist) {
+		t.Fatal("export did not refuse an existing file", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(original, after) {
+		t.Fatal("export changed the original file", err)
 	}
 }

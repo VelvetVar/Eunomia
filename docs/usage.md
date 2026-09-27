@@ -24,6 +24,8 @@ To start with the logo paused:
 eunomia up --no-animation
 ```
 
+Launching Eunomia again while it is already open shows `Application is already running` for three seconds, then exits the new instance. The existing window and SSH sessions keep running.
+
 ## Lab
 
 Lab is your saved device list and occupies tab `0`.
@@ -125,6 +127,8 @@ For a prefix shortcut, press `Ctrl+B`, release both keys, then press the next ke
 Use next/previous shortcuts to reach sessions beyond tab 9. Plain Tab, Ctrl+C, left/right arrows, and typed text go to the remote session. Pasting is supported, including bracketed paste when the remote application enables it.
 
 On Windows, right-click inside the session with no text selected to paste clipboard text, including at password prompts. Right-click also pastes into the current device-form, search, or subnet field. It does nothing in menus or confirmation dialogs. Passwords stay hidden, and pasting does not add an Enter key; press Enter when ready. On Linux and macOS, use your terminal's paste shortcut.
+
+Each paste is limited to 1 MiB of UTF-8 text. Larger pastes are rejected in full, with a message; no partial text is sent. Use a file transfer for larger content.
 
 To copy SSH output, hold the left mouse button and drag across the text. Release to copy the highlighted text to the clipboard. This works in live output, scrollback, full-screen remote apps, and exited tabs. The visible content stays still while selected; incoming output continues in the background. While text is selected, right-click copies it and never pastes; the selection remains highlighted. Press `Esc`, type, scroll, or switch tabs to clear the selection before using right-click paste. Plain `Ctrl+C` still goes to the remote program. On Linux and macOS, copying requires a terminal that allows clipboard writes.
 

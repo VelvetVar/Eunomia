@@ -15,9 +15,10 @@ import (
 	"strings"
 	"syscall"
 	"text/tabwriter"
+	"time"
 )
 
-var Version = "2.3.1"
+var Version = "2.4.0"
 
 const help = `EUNOMIA / Native Go homelab manager
 
@@ -109,7 +110,14 @@ func parseArgs(args []string) (arguments, error) {
 func Main(args []string, out, errOut io.Writer) int {
 	code, err := runCLI(args, out)
 	if err != nil {
-		fmt.Fprintln(errOut, "Eunomia:", err)
+		if errors.Is(err, errAlreadyRunning) {
+			fmt.Fprintln(errOut, errAlreadyRunning)
+			// Keep a console opened by a double-click visible long enough to read.
+			// Only this duplicate launch waits; the existing instance is untouched.
+			time.Sleep(3 * time.Second)
+		} else {
+			fmt.Fprintln(errOut, "Eunomia:", err)
+		}
 		if code == 0 {
 			code = 1
 		}
@@ -213,6 +221,11 @@ func runCLI(args []string, out io.Writer) (resultCode int, resultErr error) {
 		}
 		return 0, nil
 	case "up", "dashboard":
+		// Detect the usual duplicate before initializing the terminal or profile.
+		// StartControl still handles simultaneous launches under its exclusive lock.
+		if state, err := readRunState(store.Directory); err == nil && processAlive(state.PID) {
+			return 1, errAlreadyRunning
+		}
 		defer func() {
 			if resultErr != nil {
 				if diagnostics, err := NewDiagnostics(store.Directory); err == nil {

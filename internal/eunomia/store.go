@@ -170,18 +170,27 @@ func writeAtomic(file string, bytes []byte, mode os.FileMode) error {
 	}
 	return replaceFile(name, file)
 }
-func (s Store) mutate(change func([]Device) ([]Device, error)) error {
-	return s.mutateData(func(data *deviceFile) error {
-		devices, err := change(data.Devices)
-		if err == nil {
-			data.Devices = devices
-			if data.Devices == nil {
-				data.Devices = []Device{}
-			}
-		}
+
+// writeNewFile never overwrites an existing file and removes its own incomplete
+// output if writing, flushing, or closing fails.
+func writeNewFile(path string, data []byte, mode os.FileMode) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	if err != nil {
 		return err
-	})
+	}
+	if _, err = file.Write(data); err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		os.Remove(path)
+	}
+	return err
 }
+
 func Find(devices []Device, ref string) (Device, error) {
 	for _, d := range devices {
 		if d.ID == ref || strings.EqualFold(d.Name, ref) {
@@ -202,17 +211,33 @@ func Search(devices []Device, query string) []Device {
 	return result
 }
 func (s Store) Save(d Device, ref string) (Device, error) {
+	return s.save(d, ref, "")
+}
+
+// SaveInFolder creates the profile and its membership in the same transaction.
+// If the destination was removed while the form was open, nothing is saved.
+func (s Store) SaveInFolder(d Device, folder string) (Device, error) {
+	return s.save(d, "", folder)
+}
+
+func (s Store) save(d Device, ref, folder string) (Device, error) {
 	var saved Device
-	err := s.mutate(func(devices []Device) ([]Device, error) {
+	err := s.mutateData(func(data *deviceFile) error {
+		devices := data.Devices
 		clean, err := Validate(d)
 		if err != nil {
-			return nil, err
+			return err
+		}
+		if folder != "" {
+			if _, err := data.Layout.folder(folder); err != nil {
+				return err
+			}
 		}
 		index := -1
 		if ref != "" {
 			old, err := Find(devices, ref)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			clean.ID = old.ID
 			clean.CreatedAt = old.CreatedAt
@@ -227,7 +252,7 @@ func (s Store) Save(d Device, ref string) (Device, error) {
 		}
 		for i, other := range devices {
 			if i != index && strings.EqualFold(other.Name, clean.Name) {
-				return nil, errors.New("a device with that name already exists")
+				return errors.New("a device with that name already exists")
 			}
 		}
 		clean.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
@@ -237,21 +262,27 @@ func (s Store) Save(d Device, ref string) (Device, error) {
 		} else {
 			devices[index] = clean
 		}
-		return devices, nil
+		data.Devices = devices
+		if folder != "" {
+			data.Layout.placeInFolder(clean.ID, folder)
+		}
+		return nil
 	})
 	return saved, err
 }
 func (s Store) Remove(ref string) error {
-	return s.mutate(func(devices []Device) ([]Device, error) {
+	return s.mutateData(func(data *deviceFile) error {
+		devices := data.Devices
 		d, err := Find(devices, ref)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		for i := range devices {
 			if devices[i].ID == d.ID {
-				return append(devices[:i], devices[i+1:]...), nil
+				data.Devices = append(devices[:i], devices[i+1:]...)
+				return nil
 			}
 		}
-		return devices, nil
+		return nil
 	})
 }

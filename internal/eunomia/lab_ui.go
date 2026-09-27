@@ -28,39 +28,47 @@ type moveState struct {
 }
 
 func (a *App) labRows() []labRow {
-	rows := []labRow{}
-	devices := map[string]Device{}
-	counts := map[string]int{}
-	for _, device := range a.Filtered {
-		devices[device.ID] = device
-		if a.Query != "" {
+	rows := make([]labRow, 0, len(a.Filtered)+len(a.Layout.Folders))
+	if a.Query != "" {
+		for _, device := range a.Filtered {
 			rows = append(rows, labRow{Device: device})
 		}
+		return rows
+	}
+	devices := make(map[string]Device, len(a.Filtered))
+	folders := make(map[string]Folder, len(a.Layout.Folders))
+	for _, folder := range a.Layout.Folders {
+		folders[folder.ID] = folder
+	}
+	counts := make(map[string]int, len(folders))
+	for _, device := range a.Filtered {
+		devices[device.ID] = device
 		for parent := a.Layout.DeviceFolders[device.ID]; parent != ""; {
 			counts[parent]++
-			folder, err := a.Layout.folder(parent)
-			if err != nil {
+			folder, ok := folders[parent]
+			if !ok {
 				break
 			}
 			parent = folder.ParentID
 		}
 	}
-	if a.Query != "" {
-		return rows
-	}
+	// ReadAll normalizes the saved tree once, before it reaches the UI. Rendering
+	// can walk that order directly, without sorting or reconciling it again.
 	var visit func(string, int)
 	visit = func(parent string, depth int) {
-		for _, entry := range a.Layout.items(parent, a.Filtered) {
+		for _, entry := range a.Layout.storedItems(parent) {
 			kind, id, _ := strings.Cut(entry, ":")
 			if kind == "device" {
-				rows = append(rows, labRow{Device: devices[id], Depth: depth})
+				if device, ok := devices[id]; ok {
+					rows = append(rows, labRow{Device: device, Depth: depth})
+				}
 				continue
 			}
-			folder, err := a.Layout.folder(id)
-			if err != nil {
+			folder, ok := folders[id]
+			if !ok {
 				continue
 			}
-			rows = append(rows, labRow{Folder: *folder, IsFolder: true, Count: counts[id], Depth: depth})
+			rows = append(rows, labRow{Folder: folder, IsFolder: true, Count: counts[id], Depth: depth})
 			if !folder.Collapsed {
 				visit(id, depth+1)
 			}

@@ -117,11 +117,7 @@ func (a *App) Draw() {
 	if _, off := os.LookupEnv("NO_COLOR"); off {
 		clearStyle = tcell.StyleDefault
 	}
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			a.Screen.SetContent(x, y, ' ', nil, clearStyle)
-		}
-	}
+	a.Screen.Fill(' ', clearStyle)
 	a.Screen.HideCursor()
 	if a.HelpOpen {
 		a.drawHelp(w, h)
@@ -459,10 +455,10 @@ func vtColor(c color.Color, fallback tcell.Color) tcell.Color {
 	r, g, b, _ := c.RGBA()
 	return tcell.NewRGBColor(int32(r>>8), int32(g>>8), int32(b>>8))
 }
-func cellStyle(c *uv.Cell) tcell.Style {
+func cellStyle(c *uv.Cell, noColor bool) tcell.Style {
 	s := c.Style
 	style := tcell.StyleDefault
-	if _, off := os.LookupEnv("NO_COLOR"); !off {
+	if !noColor {
 		style = style.Foreground(vtColor(s.Fg, tcell.ColorWhite)).Background(vtColor(s.Bg, tcell.ColorBlack))
 	}
 	return style.Bold(s.Attrs&uv.AttrBold != 0).Dim(s.Attrs&uv.AttrFaint != 0).Italic(s.Attrs&uv.AttrItalic != 0).Reverse(s.Attrs&uv.AttrReverse != 0).Blink(s.Attrs&uv.AttrBlink != 0).StrikeThrough(s.Attrs&uv.AttrStrikethrough != 0).Underline(s.Underline != 0)
@@ -485,19 +481,21 @@ func (a *App) drawSession(s *Session, w, h int) {
 	if s.Term.IsAltScreen() {
 		offset = 0
 	}
+	_, noColor := os.LookupEnv("NO_COLOR")
+	emptyStyle := cellStyle(&uv.Cell{}, noColor)
 	for y := 0; y < h-2; y++ {
 		for x := 0; x < w; x++ {
 			cell := sessionViewCell(s, x, y)
 			if selection != nil {
 				cell = &selection.cells[y*w+x]
 			}
-			style := cellStyle(&uv.Cell{})
+			style := emptyStyle
 			text := " "
 			if cell != nil {
 				if cell.Width == 0 {
 					continue
 				}
-				style = cellStyle(cell)
+				style = cellStyle(cell, noColor)
 				text = cell.Content
 				if text == "" {
 					text = " "
@@ -510,8 +508,9 @@ func (a *App) drawSession(s *Session, w, h int) {
 				_, _, attrs := style.Decompose()
 				style = style.Reverse(attrs&tcell.AttrReverse == 0)
 			}
-			runes := []rune(text)
-			a.Screen.SetContent(x, y+1, runes[0], runes[1:], style)
+			// The emulator already stores a complete grapheme. Put avoids the
+			// deprecated rune-slice conversion in SetContent for every cell.
+			a.Screen.Put(x, y+1, text, style)
 		}
 	}
 	footer := "SCROLL: ↑/↓ history | F7 remote keys | Ctrl+B then ? keys"

@@ -1,6 +1,7 @@
 package eunomia
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
 	"os"
@@ -9,6 +10,40 @@ import (
 	"testing"
 	"time"
 )
+
+func TestDuplicateLaunchShowsErrorForThreeSeconds(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("EUNOMIA_HOME", directory)
+	stopped := make(chan struct{}, 1)
+	control, err := StartControl(directory, func() { stopped <- struct{}{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	path := filepath.Join(directory, "running.json")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	start := time.Now()
+	code := Main(nil, &out, &errOut)
+	if code != 1 || out.Len() != 0 || errOut.String() != "Application is already running\n" {
+		t.Fatal("unexpected duplicate-launch response", code, out.String(), errOut.String())
+	}
+	if time.Since(start) < 3*time.Second {
+		t.Fatal("duplicate closed before the three-second message elapsed")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("duplicate changed the running instance record", err)
+	}
+	select {
+	case <-stopped:
+		t.Fatal("duplicate stopped the existing instance")
+	default:
+	}
+}
 
 func TestAuthenticatedLifecycle(t *testing.T) {
 	directory := t.TempDir()
@@ -66,5 +101,45 @@ func TestLifecyclePreservesLiveUnreachableState(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(directory, "running.json")); err != nil {
 		t.Fatal("live record removed")
+	}
+}
+
+func TestControlRejectsExcessConnectionsAndRecovers(t *testing.T) {
+	directory := t.TempDir()
+	stopped := make(chan struct{}, 1)
+	control, err := StartControl(directory, func() { stopped <- struct{}{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	for range maxControlConnections {
+		conn, err := net.DialTimeout("tcp4", control.listener.Addr().String(), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+	}
+	waitUntil(t, time.Second, func() bool { return len(control.slots) == maxControlConnections })
+	extra, err := net.DialTimeout("tcp4", control.listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer extra.Close()
+	extra.SetReadDeadline(time.Now().Add(time.Second))
+	var reply [1]byte
+	if _, err := extra.Read(reply[:]); err == nil {
+		t.Fatal("excess connection was served")
+	} else if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+		t.Fatal("excess connection remained queued")
+	}
+	// Idle requests expire, restoring capacity for an authenticated command.
+	waitUntil(t, 4*time.Second, func() bool { return len(control.slots) == 0 })
+	if ok, err := StopRunning(directory); !ok || err != nil {
+		t.Fatal("control did not recover after overload", ok, err)
+	}
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("authenticated stop was not delivered")
 	}
 }
