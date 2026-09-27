@@ -12,11 +12,12 @@ type labRow struct {
 	Folder   Folder
 	IsFolder bool
 	Count    int
+	Depth    int
 }
 
 type folderFormState struct {
-	ID, Name string
-	Cursor   int
+	ID, Name, ParentID string
+	Cursor             int
 }
 
 type moveState struct {
@@ -28,40 +29,44 @@ type moveState struct {
 
 func (a *App) labRows() []labRow {
 	rows := []labRow{}
-	groups := map[string][]Device{}
-	rootDevices := map[string]Device{}
+	devices := map[string]Device{}
+	counts := map[string]int{}
 	for _, device := range a.Filtered {
-		folder := a.Layout.DeviceFolders[device.ID]
-		// Search always finds devices inside collapsed folders.
+		devices[device.ID] = device
 		if a.Query != "" {
 			rows = append(rows, labRow{Device: device})
-		} else if folder == "" {
-			rootDevices[device.ID] = device
-		} else {
-			groups[folder] = append(groups[folder], device)
+		}
+		for parent := a.Layout.DeviceFolders[device.ID]; parent != ""; {
+			counts[parent]++
+			folder, err := a.Layout.folder(parent)
+			if err != nil {
+				break
+			}
+			parent = folder.ParentID
 		}
 	}
 	if a.Query != "" {
 		return rows
 	}
-	for _, entry := range a.Layout.rootOrder(a.Filtered) {
-		kind, id, _ := strings.Cut(entry, ":")
-		if kind == "device" {
-			rows = append(rows, labRow{Device: rootDevices[id]})
-			continue
-		}
-		folder, err := a.Layout.folder(id)
-		if err != nil {
-			continue
-		}
-		devices := groups[folder.ID]
-		rows = append(rows, labRow{Folder: *folder, IsFolder: true, Count: len(devices)})
-		if !folder.Collapsed {
-			for _, device := range devices {
-				rows = append(rows, labRow{Device: device})
+	var visit func(string, int)
+	visit = func(parent string, depth int) {
+		for _, entry := range a.Layout.items(parent, a.Filtered) {
+			kind, id, _ := strings.Cut(entry, ":")
+			if kind == "device" {
+				rows = append(rows, labRow{Device: devices[id], Depth: depth})
+				continue
+			}
+			folder, err := a.Layout.folder(id)
+			if err != nil {
+				continue
+			}
+			rows = append(rows, labRow{Folder: *folder, IsFolder: true, Count: counts[id], Depth: depth})
+			if !folder.Collapsed {
+				visit(id, depth+1)
 			}
 		}
 	}
+	visit("", 0)
 	return rows
 }
 
@@ -93,7 +98,16 @@ func (a *App) selectDevice(id string) {
 
 func (a *App) revealDevice(id string) error {
 	if folderID := a.Layout.DeviceFolders[id]; folderID != "" && a.Query == "" {
-		if folder, err := a.Layout.folder(folderID); err == nil && folder.Collapsed {
+		collapsed := false
+		for current := folderID; current != ""; {
+			folder, err := a.Layout.folder(current)
+			if err != nil {
+				break
+			}
+			collapsed = collapsed || folder.Collapsed
+			current = folder.ParentID
+		}
+		if collapsed {
 			if err := a.Store.CollapseFolder(folderID, false); err != nil {
 				return err
 			}
@@ -144,12 +158,12 @@ func (a *App) moveFolder(id string, direction int) {
 
 func (a *App) beginFolder(folder Folder) {
 	a.Mode, a.Message, a.Error = "folder", "", false
-	a.FolderForm = folderFormState{ID: folder.ID, Name: folder.Name, Cursor: len([]rune(folder.Name))}
+	a.FolderForm = folderFormState{ID: folder.ID, Name: folder.Name, ParentID: folder.ParentID, Cursor: len([]rune(folder.Name))}
 }
 
 func (a *App) deviceLocation(id string) string {
-	if folder, err := a.Layout.folder(a.Layout.DeviceFolders[id]); err == nil {
-		return "Folder: " + folder.Name
+	if path := a.Layout.folderPath(a.Layout.DeviceFolders[id]); path != "" {
+		return "Folder: " + path
 	}
 	return "Lab (no folder)"
 }
@@ -180,7 +194,7 @@ func (a *App) labModeKey(event *tcell.EventKey) bool {
 			editText(&a.FolderForm.Name, &a.FolderForm.Cursor, event, 60)
 			return true
 		}
-		folder, err := a.Store.SaveFolder(a.FolderForm.Name, a.FolderForm.ID)
+		folder, err := a.Store.SaveFolder(a.FolderForm.Name, a.FolderForm.ID, a.FolderForm.ParentID)
 		if err == nil {
 			a.Mode, a.Query = "list", ""
 			err = a.refresh()
@@ -218,7 +232,7 @@ func (a *App) labModeKey(event *tcell.EventKey) bool {
 				return true
 			}
 			folderID = a.Layout.Folders[a.Move.Selected-3].ID
-			destination = "folder: " + a.Layout.Folders[a.Move.Selected-3].Name
+			destination = "folder: " + a.Layout.folderPath(folderID)
 		}
 		err := a.Store.PlaceDevice(a.Move.DeviceID, folderID)
 		if err == nil {
@@ -233,10 +247,16 @@ func (a *App) labModeKey(event *tcell.EventKey) bool {
 
 func (a *App) drawFolderForm(w, top int) {
 	title := "CREATE FOLDER"
+	if a.FolderForm.ParentID != "" {
+		title = "CREATE SUBFOLDER"
+	}
 	if a.FolderForm.ID != "" {
 		title = "RENAME FOLDER"
 	}
 	a.put(3, top+1, title, tealStyle, w-6)
+	if a.FolderForm.ParentID != "" {
+		a.put(3, top+2, "Inside: "+a.Layout.folderPath(a.FolderForm.ParentID), dimStyle, w-6)
+	}
 	a.put(3, top+3, "Folder name", dimStyle, w-6)
 	a.put(3, top+5, inputView(a.FolderForm.Name, a.FolderForm.Cursor, w-6), whiteStyle, w-6)
 	a.put(3, top+7, "Use Shift+M on a device to move it into a folder.", dimStyle, w-6)
@@ -258,6 +278,7 @@ func (a *App) drawMove(w, bottom, top int) {
 			a.put(3, top+2, folder.Name, whiteStyle, w-6)
 		}
 		a.put(3, top+3, "The folder and all its devices move together.", dimStyle, w-6)
+		a.put(3, top+4, "Systems below the heading join this folder.", dimStyle, w-6)
 		for i, label := range []string{"Move folder up", "Move folder down"} {
 			style, marker := baseStyle, "  "
 			if i == a.Move.Selected {
@@ -270,7 +291,7 @@ func (a *App) drawMove(w, bottom, top int) {
 	a.put(3, top+3, "Current location: "+a.deviceLocation(a.Move.DeviceID), dimStyle, w-6)
 	choices := []string{"Move up in Lab", "Move down in Lab", "Move to Lab (no folder)"}
 	for _, folder := range a.Layout.Folders {
-		choices = append(choices, "Move to folder: "+folder.Name)
+		choices = append(choices, "Move to folder: "+a.Layout.folderPath(folder.ID))
 	}
 	first := 0
 	if a.Move.FoldersOnly {

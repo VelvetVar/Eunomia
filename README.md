@@ -82,9 +82,10 @@ The bottom key bar adapts to the selected device, folder, or form and stays visi
 | `a` / `e` | Add / edit a device |
 | `Shift+M` / `Alt+↑` / `Alt+↓` | Move menu / move the selected device or whole folder up / down |
 | `→` on a device | Move an existing device into a folder or back to Lab |
-| `Shift+F` | Create a folder |
+| `Shift+F` | Create a folder, or a subfolder when a folder is selected |
+| `Ctrl+F` | Create a top-level folder |
 | `Enter` / `←` / `→` on a folder | Toggle / collapse / expand its devices |
-| `e` / `Delete` on a folder | Rename / delete the folder, keeping its devices |
+| `e` / `Delete` on a folder | Rename / delete the folder, keeping its devices and subfolders |
 | `Delete` | Remove a saved device |
 | `/` | Search devices |
 | `d` | Open Discover |
@@ -114,11 +115,18 @@ Run `eunomia path` to see the exact location on your machine.
 | Linux | `~/.config/eunomia/devices.json`, or `$XDG_CONFIG_HOME/eunomia/devices.json` when set |
 | macOS | `~/Library/Application Support/Eunomia/devices.json` |
 
-Set `EUNOMIA_HOME` to use another directory. Back up `devices.json` to keep your saved devices. It contains connection details and descriptions; passwords and terminal output aren't written to it.
+Set `EUNOMIA_HOME` to use another directory. **One file, `devices.json`, contains your devices, nested folders, membership, order, and collapsed state.** Passwords, SSH keys, and terminal output aren't written to it.
 
-Folder membership, collapsed folders, and manual device order are saved alongside it in `lab.json`. Back up both files to keep your Lab organization. Deleting a folder returns its devices to the main Lab list.
+Export and import the complete Lab with:
 
-The Go version uses the same device file as the earlier Node version, so existing devices carry over.
+```sh
+eunomia export my-lab.json
+eunomia import my-lab.json --yes
+```
+
+Export creates a new file. Import replaces the destination Lab; press `r` in an open Lab to reload it. Devices beneath a folder heading belong to that folder and collapse with it. Moving a folder above systems adopts those systems automatically. Deleting a folder preserves its devices and subfolders.
+
+Existing version 1 profiles and the old separate `lab.json` are migrated automatically. The original device file is retained as `devices.json.v1-backup`; the old `lab.json` is no longer used after migration. The combined format requires Eunomia 2.3 or newer. Only the new `devices.json` is needed to transfer the complete Lab.
 
 ## Build from source
 

@@ -98,7 +98,7 @@ func (a *App) prompt() string {
 		case "delete":
 			return "Remove " + a.Pending.Device.Name + "? y confirm / n cancel"
 		case "delete-folder":
-			return "Delete " + runewidth.Truncate(a.Pending.Folder.Name, 16, "…") + "? Keep devices. y / n"
+			return "Delete " + runewidth.Truncate(a.Pending.Folder.Name, 16, "…") + "? Keep devices/subfolders. y / n"
 		case "forget":
 			return "Forget the saved fingerprint? y confirm / n cancel"
 		}
@@ -292,13 +292,14 @@ func (a *App) drawLab(w, h int) {
 				if row.Folder.Collapsed {
 					symbol = "[+] "
 				}
-				label := fmt.Sprintf("%s%s (%d)", symbol, row.Folder.Name, row.Count)
+				indent := strings.Repeat(" ", min(4*row.Depth, max(0, split-25)))
+				label := fmt.Sprintf("%s%s%s (%d)", indent, symbol, row.Folder.Name, row.Count)
 				a.put(5, y, label, style.Foreground(tcell.NewRGBColor(94, 234, 212)), split-7)
 				continue
 			}
 			name := d.Name
-			if a.Layout.DeviceFolders[d.ID] != "" && a.Query == "" {
-				name = "    " + name
+			if row.Depth > 0 {
+				name = strings.Repeat(" ", min(4*row.Depth, max(0, nameWidth-7))) + name
 			}
 			a.put(5, y, name, style, nameWidth-2)
 			a.put(5+nameWidth, y, d.Host, style, hostWidth-2)
@@ -326,7 +327,7 @@ func (a *App) drawLab(w, h int) {
 				a.put(split+3, top+5, folder.Name, whiteStyle, w-split-6)
 				a.put(split+3, top+7, "Enter: collapse / expand", dimStyle, w-split-6)
 				a.put(split+3, top+8, "a: add device / e: rename", dimStyle, w-split-6)
-				a.put(split+3, top+9, "Delete: keep devices in Lab", dimStyle, w-split-6)
+				a.put(split+3, top+9, "Shift+F: new subfolder", dimStyle, w-split-6)
 			}
 		} else {
 			d, _ := a.selected()

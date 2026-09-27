@@ -200,10 +200,7 @@ func TestLabFolderPickerMovesExistingDevices(t *testing.T) {
 	if err := a.Store.CollapseFolder(second.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	profilesBefore, err := os.ReadFile(a.Store.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	profilesBefore := savedProfileBytes(t, a.Store)
 	if err := a.refresh(); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +219,7 @@ func TestLabFolderPickerMovesExistingDevices(t *testing.T) {
 	if a.Layout.Folders[1].Collapsed || len(a.labRows()) != 4 {
 		t.Fatal("destination folder was not expanded with both members")
 	}
-	profilesAfter, _ := os.ReadFile(a.Store.Path())
+	profilesAfter := savedProfileBytes(t, a.Store)
 	if string(profilesAfter) != string(profilesBefore) {
 		t.Fatal("moving an existing device changed its profile")
 	}
@@ -273,8 +270,8 @@ func TestLabFolderPickerWithoutFolders(t *testing.T) {
 	if selected, ok := a.selected(); !ok || selected.ID != device.ID || a.Mode != "list" {
 		t.Fatal("cancel lost the selected device")
 	}
-	if _, err := os.Stat(a.Store.LayoutPath()); !os.IsNotExist(err) {
-		t.Fatal("cancelling folder picker wrote a layout")
+	if layout, err := a.Store.ReadLayout(); err != nil || len(layout.Folders) != 0 {
+		t.Fatal("cancelling folder picker changed the layout")
 	}
 }
 
@@ -288,7 +285,7 @@ func TestLabFolderPasteAndMoveCancellation(t *testing.T) {
 	if a.Mode != "folder" || a.FolderForm.Name != "Servers q  " || a.ctx.Err() != nil {
 		t.Fatal("clipboard paste submitted the folder form or ran shortcuts")
 	}
-	if _, err := os.Stat(a.Store.LayoutPath()); !os.IsNotExist(err) {
+	if layout, err := a.Store.ReadLayout(); err != nil || len(layout.Folders) != 0 {
 		t.Fatal("pasted newline saved a folder")
 	}
 	press(a, tcell.KeyEnter)
@@ -332,7 +329,7 @@ func TestLabFolderLayoutAtTerminalSizes(t *testing.T) {
 			a.selectFolder(folder.ID)
 			a.Draw()
 			view := screenText(screen)
-			if !strings.Contains(view, "[-] Servers (1)") || !strings.Contains(view, "Shift+M Move folder") || !strings.Contains(view, "Shift+F New folder") {
+			if !strings.Contains(view, "[-] Servers (1)") || !strings.Contains(view, "Shift+M Move folder") || !strings.Contains(view, "Shift+F New subfolder") {
 				t.Fatal("folder heading or organization controls clipped", view)
 			}
 			if !strings.Contains(view, "\n     Root") || !strings.Contains(view, "\n         Atlas") {
@@ -373,6 +370,11 @@ func TestNativeLabOrganization(t *testing.T) {
 	session := NewSession(fixtureDevice(), helperTerminal(t, "ui", 80, 24), 80, 24, func(*Session) {})
 	defer session.Close()
 	text := func() string { session.mu.Lock(); defer session.mu.Unlock(); return session.Term.String() }
+	defer func() {
+		if t.Failed() {
+			t.Logf("last Lab screen:\n%s", text())
+		}
+	}()
 	waitUntil(t, 8*time.Second, func() bool { return strings.Contains(text(), "Alpha") && strings.Contains(text(), "Beta") })
 	session.SendLiteral("FServers\r")
 	var folderID string
@@ -416,7 +418,14 @@ func TestNativeLabOrganization(t *testing.T) {
 	session.SendLiteral("\r")
 	waitUntil(t, 3*time.Second, func() bool {
 		layout, err := store.ReadLayout()
-		return err == nil && len(layout.RootOrder) == 2 && layout.RootOrder[0] == "folder:"+folderID && layout.DeviceFolders[beta.ID] == folderID && strings.Contains(text(), "Folder moved with its devices.")
+		return err == nil && len(layout.RootOrder) == 1 && layout.RootOrder[0] == "folder:"+folderID && len(layout.DeviceFolders) == 2 && strings.Contains(text(), "Folder moved with its devices.")
+	})
+	session.SendLiteral("F")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "CREATE SUBFOLDER") })
+	session.SendLiteral("Apps\r")
+	waitUntil(t, 3*time.Second, func() bool {
+		layout, err := store.ReadLayout()
+		return err == nil && len(layout.Folders) == 2 && layout.Folders[1].ParentID == folderID && strings.Contains(text(), "Apps (0)")
 	})
 	session.SendLiteral("?")
 	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "ALL KEYS / PAGE 1") })

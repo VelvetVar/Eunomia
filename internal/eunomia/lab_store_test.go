@@ -2,10 +2,24 @@ package eunomia
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"reflect"
 	"testing"
 )
+
+func savedProfileBytes(t *testing.T, store Store) []byte {
+	t.Helper()
+	devices, err := store.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(devices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
 
 func saveLabDevice(t *testing.T, store Store, name string) Device {
 	t.Helper()
@@ -30,16 +44,13 @@ func layoutIDs(layout LabLayout, devices []Device, folder string) []string {
 
 func TestLabOrganizationPersistsWithoutChangingProfiles(t *testing.T) {
 	store := Store{t.TempDir()}
-	c := saveLabDevice(t, store, "C")
 	a := saveLabDevice(t, store, "A")
 	b := saveLabDevice(t, store, "B")
-	original, _ := os.ReadFile(store.Path())
+	c := saveLabDevice(t, store, "C")
+	original := savedProfileBytes(t, store)
 	layout, err := store.ReadLayout()
-	if err != nil || len(layout.Order) != 0 {
-		t.Fatal("legacy profiles did not get an empty layout", err)
-	}
-	if _, err := os.Stat(store.LayoutPath()); !os.IsNotExist(err) {
-		t.Fatal("reading legacy profiles wrote a layout")
+	if err != nil || len(layout.Folders) != 0 || len(layout.Order) != 3 {
+		t.Fatal("profiles were not saved together with their order", err)
 	}
 	if err := store.MoveDevice(c.ID, -1); err != nil {
 		t.Fatal(err)
@@ -71,7 +82,7 @@ func TestLabOrganizationPersistsWithoutChangingProfiles(t *testing.T) {
 	if !reflect.DeepEqual(layoutIDs(layout, devices, ""), []string{b.ID}) {
 		t.Fatal("moving inside a folder reordered or moved an unrelated device")
 	}
-	after, _ := os.ReadFile(store.Path())
+	after := savedProfileBytes(t, store)
 	if !bytes.Equal(original, after) {
 		t.Fatal("organization rewrote device profiles")
 	}
@@ -79,7 +90,7 @@ func TestLabOrganizationPersistsWithoutChangingProfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	layout, _ = store.ReadLayout()
-	after, _ = os.ReadFile(store.Path())
+	after = savedProfileBytes(t, store)
 	if len(layout.Folders) != 0 || len(layout.DeviceFolders) != 0 || !bytes.Equal(original, after) {
 		t.Fatal("deleting a folder deleted or changed devices")
 	}
@@ -105,7 +116,7 @@ func TestLabLayoutSurvivesProfileEditsAndPrunesRemovedDevices(t *testing.T) {
 		t.Fatal(err)
 	}
 	layout, err := store.ReadLayout()
-	if err != nil || layout.DeviceFolders[a.ID] != folder.ID || !reflect.DeepEqual(layout.Order, []string{a.ID, c.ID}) {
+	if err != nil || layout.DeviceFolders[a.ID] != folder.ID || !reflect.DeepEqual(layout.Order, []string{c.ID, a.ID}) {
 		t.Fatal("CLI profile changes lost folder membership or left stale order", layout, err)
 	}
 	if err := store.PlaceDevice(c.ID, folder.ID); err != nil {
@@ -146,7 +157,7 @@ func TestLabMoveThroughFolderBoundaries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	original, _ := os.ReadFile(store.Path())
+	original := savedProfileBytes(t, store)
 	for _, folder := range folders {
 		if err := store.CollapseFolder(folder.ID, true); err != nil {
 			t.Fatal(err)
@@ -215,7 +226,7 @@ func TestLabMoveThroughFolderBoundaries(t *testing.T) {
 			}
 		}
 	}
-	after, _ := os.ReadFile(store.Path())
+	after := savedProfileBytes(t, store)
 	if !bytes.Equal(original, after) {
 		t.Fatal("moving across folders changed device profiles")
 	}
@@ -224,6 +235,7 @@ func TestLabMoveThroughFolderBoundaries(t *testing.T) {
 func TestLabLayoutValidationAndLockPreserveOriginalFiles(t *testing.T) {
 	store := Store{t.TempDir()}
 	device := saveLabDevice(t, store, "A")
+	profiles := savedProfileBytes(t, store)
 	for _, original := range []string{
 		`{"version":9,"folders":[],"order":[],"deviceFolders":{}}`,
 		`{"version":1,"folders":[{"id":"one","name":"A"},{"id":"two","name":" a "}],"order":[],"deviceFolders":{}}`,
@@ -233,6 +245,7 @@ func TestLabLayoutValidationAndLockPreserveOriginalFiles(t *testing.T) {
 		`{"version":1,"folders":[],"order":[],"deviceFolders":{},"rootOrder":["folder:one","folder:one"]}`,
 		`{"version":1}`, `{broken`,
 	} {
+		original = `{"version":2,"devices":` + string(profiles) + `,"lab":` + original + `}`
 		if err := os.WriteFile(store.LayoutPath(), []byte(original), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -246,8 +259,8 @@ func TestLabLayoutValidationAndLockPreserveOriginalFiles(t *testing.T) {
 		if string(data) != original {
 			t.Fatal("invalid layout changed")
 		}
-		if devices, err := store.Read(); err != nil || len(devices) != 1 || devices[0].ID != device.ID {
-			t.Fatal("layout corruption affected device profiles", err)
+		if _, err := store.Read(); err == nil {
+			t.Fatal("accepted corrupt organization in a unified profile", device.ID)
 		}
 	}
 	os.Remove(store.LayoutPath())

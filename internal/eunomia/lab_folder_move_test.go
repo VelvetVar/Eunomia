@@ -25,7 +25,7 @@ func TestFoldersMoveWithMembersAnywhereInLab(t *testing.T) {
 	if err := a.Store.PlaceDevice(child.ID, one.ID); err != nil {
 		t.Fatal(err)
 	}
-	profiles, _ := os.ReadFile(a.Store.Path())
+	profiles := savedProfileBytes(t, a.Store)
 	if err := a.refresh(); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +52,9 @@ func TestFoldersMoveWithMembersAnywhereInLab(t *testing.T) {
 	a.selectFolder(one.ID)
 	a.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModAlt))
 	assertRows("Alpha,[One],Child,Beta,[Two]")
+	if a.Layout.DeviceFolders[beta.ID] != one.ID {
+		t.Fatal("moving folder above Beta did not adopt it")
+	}
 	if folder, ok := a.selectedFolder(); !ok || folder.ID != one.ID {
 		t.Fatal("folder selection lost")
 	}
@@ -61,7 +64,10 @@ func TestFoldersMoveWithMembersAnywhereInLab(t *testing.T) {
 		t.Fatal("folder move menu unclear")
 	}
 	press(a, tcell.KeyEnter)
-	assertRows("[One],Child,Alpha,Beta,[Two]")
+	assertRows("[One],Child,Beta,Alpha,[Two]")
+	if a.Layout.DeviceFolders[alpha.ID] != one.ID {
+		t.Fatal("moving folder above Alpha did not adopt it")
+	}
 	beforeEdge, _ := os.ReadFile(a.Store.LayoutPath())
 	if err := a.Store.MoveFolder(one.ID, -1); err == nil {
 		t.Fatal("folder moved past the top of Lab")
@@ -72,22 +78,17 @@ func TestFoldersMoveWithMembersAnywhereInLab(t *testing.T) {
 	}
 	press(a, tcell.KeyEnter) // Collapse, then move the whole folder down.
 	a.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModAlt))
-	assertRows("Alpha,[One],Beta,[Two]")
+	assertRows("[Two],[One]")
 	if !a.Layout.Folders[0].Collapsed {
 		t.Fatal("moving folder changed collapsed state")
 	}
-	a.selectFolder(two.ID)
-	for i := 0; i < 2; i++ {
-		a.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModAlt))
-	}
-	assertRows("Alpha,[Two],[One],Beta")
 	reopened, _ := uiFixture(t)
 	reopened.Store = a.Store
 	if err := reopened.refresh(); err != nil {
 		t.Fatal(err)
 	}
-	if len(reopened.labRows()) != 4 || reopened.labRows()[1].Folder.ID != two.ID || reopened.labRows()[3].Device.ID != beta.ID || reopened.labRows()[0].Device.ID != alpha.ID {
-		t.Fatal("mixed folder order did not persist")
+	if len(reopened.labRows()) != 2 || reopened.labRows()[0].Folder.ID != two.ID || reopened.Layout.DeviceFolders[alpha.ID] != one.ID || reopened.Layout.DeviceFolders[beta.ID] != one.ID {
+		t.Fatal("folder order and adopted membership did not persist")
 	}
 	if err := a.Store.DeleteFolder(one.ID); err != nil {
 		t.Fatal(err)
@@ -96,10 +97,10 @@ func TestFoldersMoveWithMembersAnywhereInLab(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := a.labRows()
-	if rows[2].Device.ID != child.ID || rows[3].Device.ID != beta.ID {
+	if rows[1].Device.ID != child.ID || rows[2].Device.ID != beta.ID || rows[3].Device.ID != alpha.ID || a.Layout.DeviceFolders[child.ID] != two.ID {
 		t.Fatal("deleting a moved folder lost its children's position")
 	}
-	after, _ := os.ReadFile(a.Store.Path())
+	after := savedProfileBytes(t, a.Store)
 	if !bytes.Equal(profiles, after) {
 		t.Fatal("moving/deleting folders modified profiles")
 	}
@@ -126,13 +127,12 @@ func TestDeviceMovesAcrossMixedRootItems(t *testing.T) {
 	a.selectDevice(child.ID)
 	a.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModAlt))
 	rows := a.labRows()
-	if a.Error || a.Layout.DeviceFolders[child.ID] != "" || rows[0].Device.ID != alpha.ID || rows[1].Folder.ID != folder.ID || rows[2].Device.ID != beta.ID || rows[3].Device.ID != child.ID {
-		t.Fatal("child did not move past an unfiled device", a.Message)
+	if a.Error || a.Layout.DeviceFolders[child.ID] != folder.ID || a.Layout.DeviceFolders[beta.ID] != folder.ID || rows[0].Device.ID != alpha.ID || rows[1].Folder.ID != folder.ID || rows[2].Device.ID != beta.ID || rows[3].Device.ID != child.ID {
+		t.Fatal("child did not reorder with the newly adopted device", a.Message)
 	}
 	a.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModAlt))
-	a.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModAlt))
 	if a.Error || a.Layout.DeviceFolders[child.ID] != folder.ID || a.labRows()[2].Device.ID != child.ID {
-		t.Fatal("moving up did not reenter the preceding folder", a.Message)
+		t.Fatal("moving up did not reorder in the folder", a.Message)
 	}
 	a.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModAlt))
 	if a.Error || a.Layout.DeviceFolders[child.ID] != "" || a.labRows()[1].Device.ID != child.ID {

@@ -17,7 +17,7 @@ import (
 	"text/tabwriter"
 )
 
-var Version = "2.2.0"
+var Version = "2.3.0"
 
 const help = `EUNOMIA / Native Go homelab manager
 
@@ -30,6 +30,8 @@ Usage:
                            [--port number] [--description text]
   eunomia remove <name-or-id> --yes
   eunomia connect <name-or-id> [--dry-run]
+  eunomia export <file.json>        Export the complete Lab to one file
+  eunomia import <file.json> --yes  Replace the Lab from an exported file
   eunomia path                      Print the device file location
   eunomia logs [--path]             Show recent diagnostics or their directory
   eunomia doctor [--json]            Check SSH, ping and native terminal support
@@ -39,6 +41,7 @@ Usage:
 Lab: a add / e edit / Delete remove / f forget fingerprint / d Discover
      arrows or j,k select / Enter SSH / p ping / r reload / m motion / q quit
      Shift+M Move menu / Alt+Up,Down move / Shift+F new folder
+     Shift+F on a folder creates a subfolder / Ctrl+F top-level folder
      v details / ? all keys / e rename selected folder
      Move past a folder heading to change device membership
      Right on a device: move into a folder or back to Lab
@@ -56,7 +59,8 @@ Forms: Tab/Down next field / Shift+Tab/Up previous field
 Keys are case-sensitive: Shift+M moves; m toggles animation.
 Shift+F creates a folder; f forgets a fingerprint.
 
-Devices persist in the same devices.json format as Eunomia 1.x.
+Devices, nested folders, order and collapsed state all persist in devices.json.
+Older devices.json and lab.json data is migrated automatically.
 Passwords and terminal output are never saved. EUNOMIA_HOME overrides storage.
 `
 
@@ -131,7 +135,7 @@ func runCLI(args []string, out io.Writer) (resultCode int, resultErr error) {
 	if len(p) > 0 {
 		command = p[0]
 	}
-	allowed := map[string]string{"up": "no-animation", "dashboard": "no-animation", "down": "", "list": "json search", "add": "host user port description", "edit": "name host user port description", "remove": "yes", "connect": "dry-run", "path": "", "doctor": "json", "install": "root bin no-path", "logs": "path"}
+	allowed := map[string]string{"up": "no-animation", "dashboard": "no-animation", "down": "", "list": "json search", "add": "host user port description", "edit": "name host user port description", "remove": "yes", "connect": "dry-run", "export": "", "import": "yes", "path": "", "doctor": "json", "install": "root bin no-path", "logs": "path"}
 	flags, ok := allowed[command]
 	if !ok {
 		return 1, fmt.Errorf("unknown command %s; use eunomia --help", command)
@@ -141,7 +145,8 @@ func runCLI(args []string, out io.Writer) (resultCode int, resultErr error) {
 			return 1, fmt.Errorf("--%s is not supported by %s", key, command)
 		}
 	}
-	needsRef := command == "add" || command == "edit" || command == "remove" || command == "connect"
+	needsFile := command == "export" || command == "import"
+	needsRef := command == "add" || command == "edit" || command == "remove" || command == "connect" || needsFile
 	limit := 1
 	if needsRef {
 		limit = 2
@@ -150,10 +155,28 @@ func runCLI(args []string, out io.Writer) (resultCode int, resultErr error) {
 		return 1, errors.New("too many arguments; quote names with spaces")
 	}
 	if needsRef && len(p) < 2 {
+		if needsFile {
+			return 1, fmt.Errorf("%s requires a filename", command)
+		}
 		return 1, fmt.Errorf("%s requires a device name or ID", command)
 	}
 	store := Store{ConfigDir()}
 	switch command {
+	case "export":
+		if err := store.Export(p[1]); err != nil {
+			return 1, err
+		}
+		fmt.Fprintln(out, "Exported devices, folders, order and collapsed state to", p[1])
+		return 0, nil
+	case "import":
+		if o["yes"] == "" {
+			return 1, errors.New("import replaces the current Lab; use --yes to confirm")
+		}
+		if err := store.Import(p[1]); err != nil {
+			return 1, err
+		}
+		fmt.Fprintln(out, "Imported the complete Lab. Press r in Lab to reload.")
+		return 0, nil
 	case "logs":
 		if o["path"] != "" {
 			fmt.Fprintln(out, filepath.Join(store.Directory, "logs"))

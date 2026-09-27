@@ -19,7 +19,7 @@ var (
 	folderKeys = []keyHint{
 		{"Shift+M", "Move folder"}, {"Alt+↑/↓", "Move folder up/down"},
 		{"Enter/Space", "Expand/collapse"}, {"←/→", "Collapse/expand"},
-		{"e", "Rename folder"}, {"Delete", "Delete folder; keep devices"},
+		{"e", "Rename folder"}, {"Delete", "Delete folder; keep contents"},
 	}
 	labKeys = []keyHint{
 		{"↑/↓", "Select"}, {"a", "Add device"}, {"Shift+F", "New folder"},
@@ -98,7 +98,7 @@ func (a *App) commandHints() (string, []keyHint) {
 			keys = append(keys, keyHint{"Esc", "Cancel"})
 		default:
 			if _, ok := a.selectedFolder(); ok {
-				context = "FOLDER KEYS — deleting keeps its devices"
+				context = "FOLDER KEYS — deleting keeps its contents"
 				keys = append(keys, folderKeys...)
 			} else if device, ok := a.selected(); ok {
 				keys = append(keys, deviceKeys...)
@@ -107,6 +107,14 @@ func (a *App) commandHints() (string, []keyHint) {
 				}
 			}
 			keys = append(keys, labKeys...)
+			if _, ok := a.selectedFolder(); ok {
+				for i := range keys {
+					if keys[i].Key == "Shift+F" {
+						keys[i].Action = "New subfolder"
+					}
+				}
+			}
+			keys = append(keys, keyHint{"Ctrl+F", "Top-level folder"})
 			if a.Query != "" {
 				keys = append(keys, keyHint{"Esc", "Clear search"})
 			}
@@ -189,7 +197,7 @@ func helpLines(width int) []string {
 	section("LAB — DEVICE SELECTED", deviceKeys)
 	section("LAB — FOLDER SELECTED", folderKeys)
 	section("LAB — GENERAL", labKeys)
-	section("LAB — MORE", []keyHint{{"j/k or mouse wheel", "Select rows"}, {"← on a folder member", "Collapse its folder"}, {"Esc", "Clear search / return to Lab list"}})
+	section("LAB — MORE", []keyHint{{"Shift+F on a folder", "Create a subfolder"}, {"Ctrl+F", "Create a top-level folder"}, {"j/k or mouse wheel", "Select rows"}, {"← on a folder member", "Collapse its folder"}, {"Esc", "Clear search / return to Lab list"}})
 	section("FORMS, FOLDER NAME, SEARCH, SUBNET", editKeys)
 	section("EDITING — MORE", []keyHint{
 		{"Tab/↓ / Shift+Tab/↑", "Next / previous device-form field"},

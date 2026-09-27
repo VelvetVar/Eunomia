@@ -29,8 +29,9 @@ type Device struct {
 	UpdatedAt   string `json:"updatedAt"`
 }
 type deviceFile struct {
-	Version int      `json:"version"`
-	Devices []Device `json:"devices"`
+	Version int        `json:"version"`
+	Devices []Device   `json:"devices"`
+	Layout  *LabLayout `json:"lab,omitempty"`
 }
 type Store struct{ Directory string }
 
@@ -106,37 +107,36 @@ func Validate(d Device) (Device, error) {
 	return d, nil
 }
 func (s Store) Read() ([]Device, error) {
-	bytes, err := os.ReadFile(s.Path())
-	if errors.Is(err, os.ErrNotExist) {
-		return []Device{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
+	data, err := s.readData()
+	return data.Devices, err
+}
+
+func decodeDeviceFile(bytes []byte) (deviceFile, error) {
 	var data deviceFile
-	if err = json.Unmarshal(bytes, &data); err != nil || data.Version != 1 || data.Devices == nil {
-		return nil, fmt.Errorf("cannot read %s: invalid profile format; original file left untouched", s.Path())
+	err := json.Unmarshal(bytes, &data)
+	if err != nil || (data.Version != 1 && data.Version != 2) || data.Devices == nil || (data.Version == 2 && data.Layout == nil) {
+		return data, errors.New("invalid profile format; original file left untouched")
 	}
 	ids, names := map[string]bool{}, map[string]bool{}
 	for i, d := range data.Devices {
 		clean, err := Validate(d)
 		if err != nil {
-			return nil, fmt.Errorf("invalid stored device: %w; original file left untouched", err)
+			return data, fmt.Errorf("invalid stored device: %w; original file left untouched", err)
 		}
 		if d.ID == "" || safe(d.ID) != d.ID || ids[d.ID] || names[strings.ToLower(clean.Name)] {
-			return nil, errors.New("invalid or duplicate stored device; original file left untouched")
+			return data, errors.New("invalid or duplicate stored device; original file left untouched")
 		}
 		if _, err = time.Parse(time.RFC3339Nano, d.CreatedAt); err != nil {
-			return nil, errors.New("invalid device creation date")
+			return data, errors.New("invalid device creation date")
 		}
 		if _, err = time.Parse(time.RFC3339Nano, d.UpdatedAt); err != nil {
-			return nil, errors.New("invalid device update date")
+			return data, errors.New("invalid device update date")
 		}
 		ids[d.ID] = true
 		names[strings.ToLower(clean.Name)] = true
 		data.Devices[i] = clean
 	}
-	return data.Devices, nil
+	return data, nil
 }
 func randomID() string {
 	var b [16]byte
@@ -171,31 +171,16 @@ func writeAtomic(file string, bytes []byte, mode os.FileMode) error {
 	return replaceFile(name, file)
 }
 func (s Store) mutate(change func([]Device) ([]Device, error)) error {
-	if err := os.MkdirAll(s.Directory, 0700); err != nil {
+	return s.mutateData(func(data *deviceFile) error {
+		devices, err := change(data.Devices)
+		if err == nil {
+			data.Devices = devices
+			if data.Devices == nil {
+				data.Devices = []Device{}
+			}
+		}
 		return err
-	}
-	lock := s.Path() + ".lock"
-	handle, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return fmt.Errorf("device file is locked or inaccessible; close other writers before removing %s: %w", lock, err)
-	}
-	defer func() { handle.Close(); os.Remove(lock) }()
-	devices, err := s.Read()
-	if err != nil {
-		return err
-	}
-	devices, err = change(devices)
-	if err != nil {
-		return err
-	}
-	if devices == nil {
-		devices = []Device{}
-	}
-	bytes, err := json.MarshalIndent(deviceFile{1, devices}, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeAtomic(s.Path(), append(bytes, '\n'), 0600)
+	})
 }
 func Find(devices []Device, ref string) (Device, error) {
 	for _, d := range devices {

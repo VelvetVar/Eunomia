@@ -123,7 +123,7 @@ Run that command using the path to your downloaded or built executable, such as 
 
 Windows cannot replace an executable while it is in use. If setup reports a locked file, close the old instance and rerun setup.
 
-The Go edition reads the Node edition's version 1 `devices.json` without an import step. Use the same `EUNOMIA_HOME` if you previously set one. On Windows, `eunomia.exe` takes precedence over an old `eunomia.cmd` in the same directory. If the shell still finds an old install elsewhere, check its path using the [troubleshooting guide](troubleshooting.md#the-eunomia-command-isnt-found).
+The Go edition migrates version 1 `devices.json` and any separate `lab.json` automatically into one version 2 `devices.json`. It preserves the original as `devices.json.v1-backup`; the old sidecar stays untouched and is ignored after migration. The combined file needs Eunomia 2.3 or newer. Use the same `EUNOMIA_HOME` if you previously set one. On Windows, `eunomia.exe` takes precedence over an old `eunomia.cmd` in the same directory. If the shell still finds an old install elsewhere, check its path using the [troubleshooting guide](troubleshooting.md#the-eunomia-command-isnt-found).
 
 ## Checksums
 

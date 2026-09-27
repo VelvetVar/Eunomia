@@ -40,7 +40,8 @@ Press `?` in Lab or Discover for the complete keyboard guide, or `Ctrl+B` then `
 | `Shift+M` | Open Move for the selected device or folder |
 | `→` on a device | Open the folder picker for that existing device |
 | `Alt+↑` / `Alt+↓` | Move a device across rows or folder headings; move a folder with all its devices |
-| `Shift+F` | Create a folder |
+| `Shift+F` | Create a folder; with a folder selected, create a subfolder inside it |
+| `Ctrl+F` | Create a top-level folder regardless of selection |
 | `Enter` / `Space` on a folder | Collapse or expand its devices |
 | `←` / `→` on a folder | Collapse / expand |
 | `e` / `Delete` on a folder | Rename / delete the folder after confirmation |
@@ -69,26 +70,29 @@ Deleting a profile doesn't edit the remote device or remove its SSH fingerprint.
 
 ### Folders and device order
 
-Press `Shift+F`, type a folder name, and press `Enter`. Select a device or folder and press `Shift+M` to open its Move menu. `Alt+↑` and `Alt+↓` move the selected item directly. New folders start at the bottom, and can be moved anywhere in Lab, including above or between unfiled devices. Each folder moves with all its members and keeps its collapsed or expanded state.
+Press `Shift+F`, type a folder name, and press `Enter`. When a folder is selected, this creates a subfolder inside it. Press `Ctrl+F` to create a top-level folder instead. The form shows the destination path. Each nesting level adds indentation; names may repeat in different parent folders, and the destination picker shows their full paths.
 
-Move a device down across a folder heading to make it that folder's first member. Move an unfiled device up into the preceding folder to make it the last member. Moving a folder's first device above its heading puts it in the preceding folder, if adjacent, or returns it to Lab. Moving its last device past an adjacent unfiled device returns it to Lab below that device. Crossing into a collapsed folder expands it. The edge-of-list message appears only at the top or bottom of Lab. These moves use the full Lab order even when started from search results.
+Select a device or folder and press `Shift+M` to open its Move menu. `Alt+↑` and `Alt+↓` move directly. New folders start at the bottom of their parent. Moving a folder above systems automatically makes those systems members: they become indented and collapse with it. This rule applies until the next folder heading at the same level, recursively for subfolders. A folder always carries its existing members and subfolders, keeping their collapsed state. Moving a subfolder past the start or end of its parent's items moves it out one level.
 
-To choose a destination directly, select the device, press `→`, choose `Move to folder: <name>` with up/down arrows, and press `Enter`. The picker shows its current location and places the device at the end of the destination folder. The destination folder expands and the device appears beneath it, indented four spaces from devices at the Lab level:
+Move a device down across a folder heading to make it that folder's first member. Moving a folder's first device above its heading puts it in the preceding folder, if adjacent, or moves it out one level. Crossing into a collapsed folder expands its ancestors too. These moves use the full Lab order even when started from search results.
+
+To choose a destination directly, select the device, press `→`, choose `Move to folder: <path>` with up/down arrows, and press `Enter`. The picker places it after that folder's direct devices and before its subfolders. The destination and its ancestors expand. For example:
 
 ```text
 Router
 [-] Servers (2)
     Atlas
-    Backup
+    [-] Apps (1)
+        Backup
 ```
 
 Those indented devices belong to the folder and collapse/expand with it. Their saved connection settings stay the same. Use the picker again to change folders or choose `Move to Lab (no folder)` to remove the device from its folder. Device details also show the current folder, including in search results.
 
 Folder headings show `[+]` when collapsed and `[-]` when expanded, plus their device count. `Enter` or `Space` toggles the selected folder. Left/right arrows collapse/expand it; pressing left on a device also collapses its parent folder. Collapsing only hides the list entries: saved devices and active SSH sessions remain available. Search returns matching devices even when their folder is collapsed.
 
-Press `a` with a folder or one of its devices selected to add a device to that folder. Press `e` on a folder to rename it. `Delete` asks for confirmation and removes only the folder; its devices return to Lab. Folders do not nest inside other folders.
+Press `a` with a folder or one of its devices selected to add a device to that folder. Press `e` on a folder to rename it. `Delete` asks for confirmation and removes only that folder, promoting its devices and subfolders one level while preserving them. The same placement rule applies to promoted devices. Folder counts include devices in every descendant subfolder; collapsing a parent hides the whole branch. Nesting supports up to 32 folder levels.
 
-Order, folder membership, and collapsed state persist across restarts in `lab.json`, beside `devices.json`. Existing device files work without migration. Back up both files. CLI commands such as `list`, `edit`, and `connect` continue to use all devices, including those inside collapsed folders; `list` keeps its alphabetical output.
+Devices and the entire folder tree persist together in `devices.json`. CLI commands such as `list`, `edit`, and `connect` use all devices, including those inside collapsed folders; `list` keeps its alphabetical output. See [saved data](#saved-data) for single-file export/import and automatic migration.
 
 ## SSH tabs
 
@@ -208,6 +212,8 @@ These commands work outside the full-screen interface:
 | `eunomia doctor [--json]` | Check runtime prerequisites |
 | `eunomia --version` | Print the version |
 | `eunomia --help` | Show command help |
+| `eunomia export <file.json>` | Save devices and the entire folder tree in one portable file |
+| `eunomia import <file.json> --yes` | Replace the current Lab with a validated export |
 
 Names containing spaces need quotes. Commands that select a device accept its ID or exact name, ignoring case.
 
@@ -234,7 +240,16 @@ Profiles are stored as plain JSON. Use `eunomia path` to find yours.
 
 Each device stores its ID, name, host, user, port, description, and creation/update times. Passwords and terminal output aren't persisted. The file is not encrypted, so keep secrets out of names and descriptions.
 
-For a backup, stop Eunomia and copy `devices.json`. To move to another machine, stop Eunomia there and place the file in the directory reported by `eunomia path`. Keep a copy of any destination file you want to retain. SSH keys, SSH configuration, and host-key files are managed separately by OpenSSH.
+The version 2 `devices.json` contains all connection profiles, folders, parent/child relationships, ordering, and collapsed state. One file is enough to restore the complete Lab:
+
+```sh
+eunomia export my-lab.json
+eunomia import my-lab.json --yes
+```
+
+Export creates a new file and refuses to overwrite an existing filename. Import validates the complete file before replacing the destination Lab; `--yes` confirms replacement. Press `r` to reload an already-open Lab after importing. Existing SSH sessions are unaffected. You can also close Eunomia and copy `devices.json` directly to the location printed by `eunomia path`.
+
+On startup or the next save, older version 1 device profiles and their separate `lab.json` are combined automatically. `devices.json.v1-backup` preserves the original device file, and the old `lab.json` remains untouched but is ignored after migration. They are migration backups, not additional files required for export. The combined file requires Eunomia 2.3 or newer. SSH keys, SSH configuration, and host-key files remain managed separately by OpenSSH.
 
 The configuration directory can also contain `running.json`, which identifies the active TUI for `eunomia down`, a temporary `devices.json.lock` while a writer is active, and a `logs` folder for diagnostics. Don't copy these as part of a device backup. Use `eunomia logs` after a connection failure or `eunomia logs --path` to locate the files. See [Connection logs](troubleshooting.md#connection-logs) for retention and privacy details.
 

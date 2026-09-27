@@ -112,6 +112,10 @@ func NewApp(screen tcell.Screen, store Store, animate bool) (*App, error) {
 		a.Error = true
 	}
 	a.Scan.Ranges = LocalRanges()
+	if err := store.Migrate(); err != nil {
+		cancel()
+		return nil, err
+	}
 	if err := a.refresh(); err != nil {
 		cancel()
 		return nil, err
@@ -119,11 +123,7 @@ func NewApp(screen tcell.Screen, store Store, animate bool) (*App, error) {
 	return a, nil
 }
 func (a *App) refresh() error {
-	devices, err := a.Store.Read()
-	if err != nil {
-		return err
-	}
-	layout, err := a.Store.ReadLayout()
+	devices, layout, err := a.Store.ReadAll()
 	if err != nil {
 		return err
 	}
@@ -649,7 +649,7 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 				if err == nil {
 					err = a.refresh()
 				}
-				a.setMessage(err, "Folder deleted; its devices are now in Lab.")
+				a.setMessage(err, "Folder deleted; devices and subfolders kept.")
 			case "forget":
 				a.Busy = true
 				go func() { err := a.forget(a.ctx, pending.Plan, nil); a.post(resetKey{pending.Plan.Target, err}) }()
@@ -792,6 +792,12 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 	folder, hasFolder := a.selectedFolder()
 	switch {
 	case r == 'F':
+		parent := ""
+		if hasFolder {
+			parent = folder.ID
+		}
+		a.beginFolder(Folder{ParentID: parent})
+	case key == tcell.KeyCtrlF:
 		a.beginFolder(Folder{})
 	case r == 'M' && hasDevice:
 		a.beginMove(d.ID, false)
