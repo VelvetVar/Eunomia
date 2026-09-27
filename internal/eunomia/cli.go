@@ -17,7 +17,7 @@ import (
 	"text/tabwriter"
 )
 
-var Version = "2.0.5"
+var Version = "2.0.6"
 
 const help = `EUNOMIA / Native Go homelab manager
 
@@ -43,7 +43,7 @@ Tabs: Ctrl+B then n/p, h or 0 Lab, D Discover, 0-9 select, x close
 SSH: arrows / PgUp,PgDn / mouse wheel scroll; Esc returns to live output
      Alt+Up/Down sends shell arrows; full-screen apps keep normal keys
      F7 toggles remote selection mode for prompts; wheel still scrolls
-     Right-click pastes clipboard text on Windows, including passwords
+     Right-click copies selected text; otherwise pastes on Windows
      Left-drag selects SSH output; release to copy; Esc clears selection
 Forms: Tab or arrows switch fields / Enter save / Esc cancel / Ctrl+U clear
 

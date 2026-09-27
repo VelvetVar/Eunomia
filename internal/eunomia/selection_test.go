@@ -29,11 +29,12 @@ func selectionMouse(a *App, x, y int, buttons tcell.ButtonMask) {
 	a.HandleMouse(tcell.NewEventMouse(x, y, buttons, tcell.ModNone))
 }
 
-func TestMouseSelectionSnapshotAndPaste(t *testing.T) {
+func TestMouseSelectionRightClickCopiesWithoutPasting(t *testing.T) {
 	a, screen, s, p := selectionFixture(t, "first line\r\n  second line")
 	var copied []string
 	a.writeClipboard = func(text string) error { copied = append(copied, text); return nil }
-	a.clipboard = func() (string, error) { return copied[len(copied)-1], nil }
+	reads := 0
+	a.clipboard = func() (string, error) { reads++; return copied[len(copied)-1], nil }
 	selectionMouse(a, 0, 1, tcell.ButtonPrimary)
 	selectionMouse(a, 12, 2, tcell.ButtonPrimary)
 	a.Draw()
@@ -57,14 +58,56 @@ func TestMouseSelectionSnapshotAndPaste(t *testing.T) {
 		t.Fatal("copy changed text, repeated, or sent input to SSH", copied)
 	}
 	selectionMouse(a, 5, 2, tcell.ButtonSecondary)
+	selectionMouse(a, 6, 2, tcell.ButtonSecondary)
+	selectionMouse(a, 5, 2, tcell.ButtonNone)
+	if a.selection == nil || len(copied) != 2 || copied[1] != copied[0] || reads != 0 || p.inputText() != "" {
+		t.Fatal("right-click changed the selection or attempted to paste", copied, reads)
+	}
+	selectionMouse(a, 5, 2, tcell.ButtonSecondary)
+	selectionMouse(a, 5, 2, tcell.ButtonNone)
+	if a.selection == nil || len(copied) != 3 || copied[2] != copied[0] || reads != 0 || p.inputText() != "" {
+		t.Fatal("repeated right-click pasted selected text", copied, reads)
+	}
+	press(a, tcell.KeyEscape)
+	selectionMouse(a, 5, 2, tcell.ButtonSecondary)
 	selectionMouse(a, 5, 2, tcell.ButtonNone)
 	waitUntil(t, time.Second, func() bool { return p.inputText() != "" })
-	if a.selection != nil || !strings.Contains(p.inputText(), "first line") || !strings.Contains(p.inputText(), "  second line") {
-		t.Fatal("right-click did not clear selection and paste")
+	if a.selection != nil || reads != 1 || !strings.Contains(p.inputText(), "first line") || !strings.Contains(p.inputText(), "  second line") {
+		t.Fatal("right-click did not paste after explicitly clearing the selection")
 	}
 	a.Draw()
 	if !strings.Contains(screenText(screen), "new output") {
 		t.Fatal("clearing selection did not restore current output")
+	}
+}
+
+func TestRightClickDuringSelectionOrCopyFailureNeverPastes(t *testing.T) {
+	for _, failCopy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("copyFailure=%v", failCopy), func(t *testing.T) {
+			a, _, _, p := selectionFixture(t, "copy me")
+			copies := 0
+			a.writeClipboard = func(text string) error {
+				copies++
+				if text != "copy me" {
+					t.Fatal("right-click moved the selection endpoint", text)
+				}
+				if failCopy {
+					return errors.New("clipboard busy")
+				}
+				return nil
+			}
+			a.clipboard = func() (string, error) { t.Fatal("read clipboard while text was selected"); return "", nil }
+			selectionMouse(a, 0, 1, tcell.ButtonPrimary)
+			selectionMouse(a, 6, 1, tcell.ButtonPrimary)
+			selectionMouse(a, 12, 2, tcell.ButtonSecondary)
+			selectionMouse(a, 12, 2, tcell.ButtonNone)
+			selectionMouse(a, 12, 2, tcell.ButtonSecondary)
+			selectionMouse(a, 12, 2, tcell.ButtonNone)
+			if a.selection == nil || a.selection.dragging || copies != 2 || p.inputText() != "" {
+				t.Fatal("right-click lost the selection or pasted during copy", copies)
+			}
+			a.pasteClipboard()
+		})
 	}
 }
 

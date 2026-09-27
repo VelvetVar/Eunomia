@@ -112,6 +112,15 @@ func (a *App) selectionMouse(event *tcell.EventMouse, previous tcell.ButtonMask)
 		return false
 	}
 	buttons := event.Buttons()
+	if a.selection != nil && buttons&tcell.ButtonSecondary != 0 {
+		// Consume the whole right-click while text is selected. Keep the
+		// selection so repeated clicks cannot turn a copy into an SSH paste.
+		if previous&tcell.ButtonSecondary == 0 {
+			a.selection.dragging = false
+			a.copySelection()
+		}
+		return true
+	}
 	if buttons&(tcell.WheelUp|tcell.WheelDown|tcell.WheelLeft|tcell.WheelRight) != 0 {
 		a.selection = nil
 		return false

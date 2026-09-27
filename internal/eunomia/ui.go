@@ -531,7 +531,6 @@ func (a *App) HandleMouse(event *tcell.EventMouse) {
 		return
 	}
 	if rightPress {
-		a.selection = nil
 		a.pasteClipboard()
 		return
 	}
@@ -555,7 +554,7 @@ func (a *App) HandleMouse(event *tcell.EventMouse) {
 	}
 }
 func (a *App) pasteClipboard() {
-	if a.clipboard == nil {
+	if a.clipboard == nil || a.selection != nil {
 		return
 	}
 	if s := a.active(); s != nil {

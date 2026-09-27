@@ -537,7 +537,7 @@ func (a *App) drawSession(s *Session, w, h int) {
 	if selection != nil {
 		footer = "Selecting text | release to copy | Esc cancels"
 		if !selection.dragging {
-			footer = selection.status + " | right-click paste | Esc clears selection"
+			footer = selection.status + " | right-click copies | Esc clears selection"
 		}
 	}
 	if prompt != "" {
