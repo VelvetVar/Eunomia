@@ -19,8 +19,9 @@ type folderFormState struct {
 }
 
 type moveState struct {
-	DeviceID string
-	Selected int
+	DeviceID    string
+	Selected    int
+	FoldersOnly bool
 }
 
 func (a *App) labRows() []labRow {
@@ -117,6 +118,26 @@ func (a *App) beginFolder(folder Folder) {
 	a.FolderForm = folderFormState{ID: folder.ID, Name: folder.Name, Cursor: len([]rune(folder.Name))}
 }
 
+func (a *App) deviceLocation(id string) string {
+	if folder, err := a.Layout.folder(a.Layout.DeviceFolders[id]); err == nil {
+		return "Folder: " + folder.Name
+	}
+	return "Lab (no folder)"
+}
+
+func (a *App) beginMove(id string, foldersOnly bool) {
+	a.Mode, a.Message, a.Error = "move", "", false
+	a.Move = moveState{DeviceID: id, FoldersOnly: foldersOnly}
+	if foldersOnly {
+		a.Move.Selected = 2
+		for i, folder := range a.Layout.Folders {
+			if i == 0 || folder.ID == a.Layout.DeviceFolders[id] {
+				a.Move.Selected = i + 3
+			}
+		}
+	}
+}
+
 func (a *App) labModeKey(event *tcell.EventKey) bool {
 	if a.Mode != "folder" && a.Mode != "move" {
 		return false
@@ -141,7 +162,11 @@ func (a *App) labModeKey(event *tcell.EventKey) bool {
 	}
 	switch {
 	case event.Key() == tcell.KeyUp || event.Rune() == 'k':
-		a.Move.Selected = max(0, a.Move.Selected-1)
+		first := 0
+		if a.Move.FoldersOnly {
+			first = 2
+		}
+		a.Move.Selected = max(first, a.Move.Selected-1)
 	case event.Key() == tcell.KeyDown || event.Rune() == 'j':
 		a.Move.Selected = min(len(a.Layout.Folders)+2, a.Move.Selected+1)
 	case event.Key() == tcell.KeyEnter:
@@ -150,12 +175,13 @@ func (a *App) labModeKey(event *tcell.EventKey) bool {
 			a.moveDevice(a.Move.DeviceID, 2*a.Move.Selected-1)
 			return true
 		}
-		folderID := ""
+		folderID, destination := "", "Lab (no folder)"
 		if a.Move.Selected >= 3 {
 			if a.Move.Selected-3 >= len(a.Layout.Folders) {
 				return true
 			}
 			folderID = a.Layout.Folders[a.Move.Selected-3].ID
+			destination = "folder: " + a.Layout.Folders[a.Move.Selected-3].Name
 		}
 		err := a.Store.PlaceDevice(a.Move.DeviceID, folderID)
 		if err == nil {
@@ -163,7 +189,7 @@ func (a *App) labModeKey(event *tcell.EventKey) bool {
 			err = a.refresh()
 			a.selectDevice(a.Move.DeviceID)
 		}
-		a.setMessage(err, "Device moved.")
+		a.setMessage(err, "Device moved to "+destination+".")
 	}
 	return true
 }
@@ -180,22 +206,34 @@ func (a *App) drawFolderForm(w, top int) {
 }
 
 func (a *App) drawMove(w, h, top int) {
-	a.put(3, top+1, "MOVE DEVICE", tealStyle, w-6)
+	title := "MOVE DEVICE"
+	if a.Move.FoldersOnly {
+		title = "MOVE TO FOLDER"
+	}
+	a.put(3, top+1, title, tealStyle, w-6)
 	if device, err := Find(a.Devices, a.Move.DeviceID); err == nil {
 		a.put(3, top+2, device.Name, whiteStyle, w-6)
 	}
+	a.put(3, top+3, "Current location: "+a.deviceLocation(a.Move.DeviceID), dimStyle, w-6)
 	choices := []string{"Move up in this group", "Move down in this group", "Move to Lab (no folder)"}
 	for _, folder := range a.Layout.Folders {
 		choices = append(choices, "Move to folder: "+folder.Name)
 	}
-	visible := max(1, h-top-8)
-	offset := max(0, a.Move.Selected-visible+1)
+	first := 0
+	if a.Move.FoldersOnly {
+		first = 2
+		if len(a.Layout.Folders) == 0 {
+			a.put(3, top+4, "No folders yet. Esc, then F to create one.", dimStyle, w-6)
+		}
+	}
+	visible := max(1, h-top-9)
+	offset := max(first, a.Move.Selected-visible+1)
 	for i := offset; i < min(len(choices), offset+visible); i++ {
 		style, marker := baseStyle, "  "
 		if i == a.Move.Selected {
 			style, marker = tealStyle, "› "
 		}
-		a.put(3, top+4+i-offset, marker+choices[i], style, w-6)
+		a.put(3, top+5+i-offset, marker+choices[i], style, w-6)
 	}
 }
 

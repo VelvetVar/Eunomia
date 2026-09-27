@@ -17,7 +17,7 @@ import (
 	"text/tabwriter"
 )
 
-var Version = "2.1.0"
+var Version = "2.1.1"
 
 const help = `EUNOMIA / Native Go homelab manager
 
@@ -39,6 +39,7 @@ Usage:
 Lab: a add / e edit / Delete remove / f forget fingerprint / D Discover
      arrows or j,k select / Enter SSH / p ping / r reload / m motion / q quit
      M Move / Alt+Up,Down reorder / F new folder / e rename folder
+     Right on a device: move into a folder or back to Lab
      Enter or Space toggles folders / Left collapse / Right expand
 Tabs: Ctrl+B then n/p, h or 0 Lab, D Discover, 0-9 select, x close
       F6 / Shift+F6 switch; Ctrl+B then b sends Ctrl+B

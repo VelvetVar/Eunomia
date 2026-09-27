@@ -198,7 +198,7 @@ func (a *App) drawLab(w, h int) {
 		lines := []string{
 			"↑ ↓ / j k select         Enter connect / resume SSH",
 			"a add / e edit          Delete remove (confirmation)",
-			"M move device / Alt+↑↓ reorder within its group",
+			"M move / → move to folder / Alt+↑↓ reorder",
 			"F new folder / e rename / Delete folder keeps devices",
 			"Folders: Enter/Space toggle / ← collapse / → expand",
 			"f forget fingerprint    D discover port 22",
@@ -224,6 +224,7 @@ func (a *App) drawLab(w, h int) {
 			a.put(3, top+4, fmt.Sprintf("%s@%s / SSH %d", d.Username, d.Host, d.Port), tealStyle, w-6)
 			r := a.Reach[d.ID]
 			a.put(3, top+5, r.Status+" "+r.Latency+"  "+r.CheckedAt.Format("15:04:05"), dimStyle, w-6)
+			a.put(3, top+6, a.deviceLocation(d.ID), dimStyle, w-6)
 			for i, line := range wrapText(d.Description, w-6) {
 				if top+7+i < h-3 {
 					a.put(3, top+7+i, line, baseStyle, w-6)
@@ -322,7 +323,7 @@ func (a *App) drawLab(w, h int) {
 			}
 			name := d.Name
 			if a.Layout.DeviceFolders[d.ID] != "" && a.Query == "" {
-				name = "  " + name
+				name = "    " + name
 			}
 			a.put(5, y, name, style, nameWidth-2)
 			a.put(5+nameWidth, y, d.Host, style, hostWidth-2)
@@ -354,7 +355,7 @@ func (a *App) drawLab(w, h int) {
 			}
 		} else {
 			d, _ := a.selected()
-			a.put(3, h-4, fmt.Sprintf("%d / %d / SSH %d / %s", a.Selected+1, len(rows), d.Port, d.Description), dimStyle, w-6)
+			a.put(3, h-4, fmt.Sprintf("%d / %d / %s / SSH %d / %s", a.Selected+1, len(rows), a.deviceLocation(d.ID), d.Port, d.Description), dimStyle, w-6)
 			if w >= 100 {
 				for y := top + 3; y < h-4; y++ {
 					a.put(split, y, "│", dimStyle, 1)
@@ -364,15 +365,16 @@ func (a *App) drawLab(w, h int) {
 				a.put(split+3, top+6, d.Username+"@"+d.Host, tealStyle, w-split-6)
 				a.put(split+3, top+7, fmt.Sprintf("SSH / %d", d.Port), dimStyle, w-split-6)
 				a.put(split+3, top+8, a.Reach[d.ID].Status+" "+a.Reach[d.ID].Latency, dimStyle, w-split-6)
+				a.put(split+3, top+9, a.deviceLocation(d.ID), dimStyle, w-split-6)
 				for i, line := range wrapText(d.Description, w-split-6) {
-					if top+9+i < h-4 {
-						a.put(split+3, top+9+i, line, dimStyle, w-split-6)
+					if top+10+i < h-4 {
+						a.put(split+3, top+10+i, line, dimStyle, w-split-6)
 					}
 				}
 			}
 		}
 		if a.Mode == "list" {
-			a.put(3, h-1, "Alt+↑/↓ move  ←/→ folders  D discover  / search  ? help", dimStyle, w-6)
+			a.put(3, h-1, "Alt+↑/↓ move  → folder  D discover  / search  ? help", dimStyle, w-6)
 		}
 	}
 	a.rule(h - 3)

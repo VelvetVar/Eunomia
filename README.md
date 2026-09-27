@@ -79,6 +79,7 @@ eunomia down
 | `Enter` | Connect, or return to that device's open session |
 | `a` / `e` | Add / edit a device |
 | `M` / `Alt+↑` / `Alt+↓` | Move menu / move a device up / down within its group |
+| `→` on a device | Move an existing device into a folder or back to Lab |
 | `F` | Create a folder |
 | `Enter` / `←` / `→` on a folder | Toggle / collapse / expand its devices |
 | `e` / `Delete` on a folder | Rename / delete the folder, keeping its devices |

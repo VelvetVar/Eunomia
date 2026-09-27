@@ -34,6 +34,7 @@ Lab is your saved device list and occupies tab `0`.
 | `a` | Add a device |
 | `e` | Edit the selected device |
 | `M` | Open Move: up, down, another folder, or back to Lab |
+| `→` on a device | Open the folder picker for that existing device |
 | `Alt+↑` / `Alt+↓` | Move the selected device up / down within its group |
 | `F` | Create a folder |
 | `Enter` / `Space` on a folder | Collapse or expand its devices |
@@ -65,6 +66,17 @@ Deleting a profile doesn't edit the remote device or remove its SSH fingerprint.
 ### Folders and device order
 
 Press `F`, type a folder name, and press `Enter`. Select a device and press `M` to move it up or down within its current group, put it inside a folder, or return it to Lab. `Alt+↑` and `Alt+↓` reorder directly. Folders appear below devices that are not in a folder. Moving a device into another group places it at the end of that group.
+
+To put an existing device in a folder, select the device, press `→`, choose `Move to folder: <name>` with up/down arrows, and press `Enter`. The picker shows its current location. The destination folder expands and the device appears beneath it, indented four spaces from devices at the Lab level:
+
+```text
+Router
+[-] Servers (2)
+    Atlas
+    Backup
+```
+
+Those indented devices belong to the folder and collapse/expand with it. Their saved connection settings stay the same. Use the picker again to change folders or choose `Move to Lab (no folder)` to remove the device from its folder. Device details also show the current folder, including in search results.
 
 Folder headings show `[+]` when collapsed and `[-]` when expanded, plus their device count. `Enter` or `Space` toggles the selected folder. Left/right arrows collapse/expand it; pressing left on a device also collapses its parent folder. Collapsing only hides the list entries: saved devices and active SSH sessions remain available. Search returns matching devices even when their folder is collapsed.
 

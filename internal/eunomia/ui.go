@@ -786,8 +786,9 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 	case r == 'F':
 		a.beginFolder(Folder{})
 	case r == 'M' && hasDevice:
-		a.Mode = "move"
-		a.Move = moveState{DeviceID: d.ID}
+		a.beginMove(d.ID, false)
+	case key == tcell.KeyRight && hasDevice:
+		a.beginMove(d.ID, true)
 	case event.Modifiers() == tcell.ModAlt && (key == tcell.KeyUp || key == tcell.KeyDown) && hasDevice:
 		direction := -1
 		if key == tcell.KeyDown {
