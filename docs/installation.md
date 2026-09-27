@@ -76,6 +76,8 @@ Offline setup needs SSH to be installed already. `sha256sum` or `shasum` is need
 
 If you run offline setup from a source checkout, the Go toolchain and dependencies must already be available locally. Offline setup won't download them.
 
+In a source checkout, setup scripts are in `scripts/`: use `.\scripts\setup.cmd` on Windows or `sh scripts/setup.sh` on Unix. Extracted release packages keep setup at their top level for convenience.
+
 ## macOS
 
 The release builder produces these executables:

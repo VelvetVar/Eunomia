@@ -135,25 +135,38 @@ Requires Go 1.26 or newer and OpenSSH. Run these commands from a checkout of thi
 Linux / macOS:
 
 ```sh
-go build -trimpath -o eunomia ./cmd/eunomia
-./eunomia up
+go build -trimpath -o dist/eunomia ./cmd/eunomia
+./dist/eunomia up
 ```
 
 Windows:
 
 ```powershell
-go build -trimpath -o eunomia.exe ./cmd/eunomia
-.\eunomia.exe up
+go build -trimpath -o dist/eunomia.exe ./cmd/eunomia
+.\dist\eunomia.exe up
 ```
 
-Run `go run ./cmd/release` to build the Windows and Linux packages, plus macOS executables, under `dist/`. See [Contributing](CONTRIBUTING.md) for tests and the source layout.
+Run `go run ./cmd/release` to build the Windows and Linux packages, plus macOS executables, under `dist/`. See [Development](docs/development.md) for build and release instructions.
+
+## Repository layout
+
+| Folder | Contents |
+| --- | --- |
+| `cmd/` | Application entry point and release builder |
+| `internal/eunomia/` | Application source, including platform-specific code |
+| `scripts/` | Source-checkout launchers and setup scripts |
+| `docs/` | Installation, usage, troubleshooting, and development guides |
+| `downloads/` | Ready-to-install Windows/Linux packages and checksums |
+| `.github/workflows/` | Cross-platform build and installation checks |
+
+Local builds go in `dist/`. Tests, development reports, caches, and saved Lab profiles are excluded from Git. The setup commands shown above apply to extracted release packages; from a source checkout use `scripts/setup.cmd` or `sh scripts/setup.sh`.
 
 ## Documentation
 
 - [Installation](docs/installation.md) — requirements, setup options, and upgrades
 - [Usage](docs/usage.md) — TUI controls, CLI commands, discovery, and storage
 - [Troubleshooting](docs/troubleshooting.md) — startup, SSH, PATH, and profile errors
-- [Contributing](CONTRIBUTING.md) — development and testing
+- [Development](docs/development.md) — source layout, builds, and publishing
 
 ## License
 

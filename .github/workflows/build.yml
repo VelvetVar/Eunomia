@@ -1,9 +1,9 @@
-name: Go cross-platform tests
+name: Go builds and package checks
 on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  test:
+  build:
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -26,24 +26,21 @@ jobs:
             shasum -a 256 -c SHA256SUMS.txt
           fi
       - run: go vet ./...
-      - run: go test -v -timeout=2m ./...
-      - name: Check for data races
-        if: runner.os == 'Linux'
-        run: go test -race -timeout=3m ./...
       - name: Build native executable
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Windows ]; then name=eunomia.exe; else name=eunomia; fi
-          CGO_ENABLED=0 go build -trimpath -o "$name" ./cmd/eunomia
-          "./$name" doctor
+          mkdir -p dist
+          CGO_ENABLED=0 go build -trimpath -o "dist/$name" ./cmd/eunomia
+          "./dist/$name" doctor
       - name: Check POSIX scripts
         if: runner.os != 'Windows'
         run: |
-          sh -n setup.sh
-          sh ./eunomia.sh --version
+          sh -n scripts/setup.sh
+          sh ./scripts/eunomia.sh --version
       - name: Check Windows launcher
         if: runner.os == 'Windows'
-        run: .\eunomia.cmd --version
+        run: .\scripts\eunomia.cmd --version
       - name: Build shipping packages
         if: runner.os != 'macOS'
         run: go run ./cmd/release

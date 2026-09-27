@@ -160,9 +160,11 @@ func run() error {
 	var sums strings.Builder
 	for _, target := range []string{"windows", "linux"} {
 		prefix := "eunomia-" + target
-		files := []string{"README.md", "CONTRIBUTING.md", "docs/installation.md", "docs/usage.md", "docs/troubleshooting.md", "LICENSE", "setup.sh"}
+		// Explicit allowlist: local profiles, tests, reports, and caches never
+		// enter a release archive. Scripts live in scripts/ only in source.
+		files := []string{"README.md", "docs/development.md", "docs/installation.md", "docs/usage.md", "docs/troubleshooting.md", "LICENSE", "scripts/setup.sh"}
 		if target == "windows" {
-			files = append(files, "setup.ps1", "setup.cmd")
+			files = append(files, "scripts/setup.ps1", "scripts/setup.cmd")
 		}
 		entries := []entry{}
 		for _, name := range files {
@@ -170,10 +172,14 @@ func run() error {
 			if err != nil {
 				return err
 			}
-			if strings.HasSuffix(name, ".sh") {
-				bytes = []byte(strings.ReplaceAll(string(bytes), "\r\n", "\n"))
+			// These allowlisted files are all text. Normalize checkout-dependent
+			// line endings so the same source produces the same package hashes.
+			text := strings.ReplaceAll(string(bytes), "\r\n", "\n")
+			if strings.HasSuffix(name, ".cmd") {
+				text = strings.ReplaceAll(text, "\n", "\r\n")
 			}
-			entries = append(entries, entry{prefix + "/" + name, bytes, strings.HasSuffix(name, ".sh")})
+			bytes = []byte(text)
+			entries = append(entries, entry{prefix + "/" + strings.TrimPrefix(name, "scripts/"), bytes, strings.HasSuffix(name, ".sh")})
 		}
 		for _, file := range licenseFiles {
 			entries = append(entries, entry{prefix + "/licenses/" + file.Name, file.Data, false})

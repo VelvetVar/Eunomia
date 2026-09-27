@@ -1,9 +1,11 @@
 *.sh text eol=lf
+*.ps1 text eol=lf
 *.cmd text eol=crlf
 *.go text eol=lf
 go.mod text eol=lf
 go.sum text eol=lf
 *.md text eol=lf
+LICENSE text eol=lf
 *.yml text eol=lf
 *.zip binary
 *.gz binary

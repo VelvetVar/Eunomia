@@ -11,6 +11,7 @@ case "$(uname -s)" in
   Darwin) eunomia_os=darwin ;;
   *) printf '%s\n' 'Unsupported operating system.' >&2; exit 1 ;;
 esac
+if [ -f "$eunomia_root/../go.mod" ]; then eunomia_root=$(CDPATH= cd -P "$eunomia_root/.." && pwd); fi
 # Validate options before building anything or invoking a package manager.
 eunomia_install=${EUNOMIA_INSTALL_ROOT:-"$HOME/.local/share/eunomia"}
 eunomia_bin=${EUNOMIA_BIN_DIR:-"$HOME/.local/bin"}
@@ -36,7 +37,8 @@ done
 case "$(uname -m)" in x86_64|amd64) eunomia_arch=amd64 ;; aarch64|arm64) eunomia_arch=arm64 ;; *) printf '%s\n' 'This release includes x64 and ARM64 binaries. Build from Go source on other architectures.' >&2; exit 1 ;; esac
 eunomia_binary="$eunomia_root/bin/$eunomia_os-$eunomia_arch/eunomia"
 if [ ! -f "$eunomia_binary" ]; then
-  if [ -x "$eunomia_root/eunomia" ]; then eunomia_binary="$eunomia_root/eunomia"
+  if [ -x "$eunomia_root/dist/eunomia" ]; then eunomia_binary="$eunomia_root/dist/eunomia"
+  elif [ -x "$eunomia_root/eunomia" ]; then eunomia_binary="$eunomia_root/eunomia"
   elif command -v go >/dev/null 2>&1 && [ -f "$eunomia_root/go.mod" ]; then
     if [ "$eunomia_offline" -eq 1 ]; then
       (cd "$eunomia_root" && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -o eunomia ./cmd/eunomia)

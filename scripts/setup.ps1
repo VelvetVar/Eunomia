@@ -7,6 +7,10 @@ param(
     [switch]$Offline
 )
 $ErrorActionPreference = 'Stop'
+$packageRoot = $PSScriptRoot
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot '../go.mod')) {
+    $packageRoot = Split-Path -Parent $PSScriptRoot
+}
 if ($env:OS -ne 'Windows_NT') { throw 'Run sh ./setup.sh on Linux or macOS.' }
 foreach ($directory in @($InstallRoot, $BinDir)) {
     if ($directory -and ($directory -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)' -or $directory -match '[\r\n]')) {
@@ -16,13 +20,16 @@ foreach ($directory in @($InstallRoot, $BinDir)) {
 $architecture = $env:PROCESSOR_ARCHITECTURE
 if ($env:PROCESSOR_ARCHITEW6432) { $architecture = $env:PROCESSOR_ARCHITEW6432 }
 $arch = switch ($architecture) { 'AMD64' { 'amd64' } 'ARM64' { 'arm64' } default { throw 'This package supports Windows x64 and ARM64.' } }
-$binary = Join-Path $PSScriptRoot "bin/windows-$arch/eunomia.exe"
+$binary = Join-Path $packageRoot "bin/windows-$arch/eunomia.exe"
 if (-not (Test-Path -LiteralPath $binary)) {
-    $binary = Join-Path $PSScriptRoot 'eunomia.exe'
+    $binary = Join-Path $packageRoot 'dist/eunomia.exe'
+}
+if (-not (Test-Path -LiteralPath $binary)) {
+    $binary = Join-Path $packageRoot 'eunomia.exe'
     if (-not (Test-Path -LiteralPath $binary)) {
         $goCommand = Get-Command go -ErrorAction SilentlyContinue
         if (-not $goCommand) { throw 'Extract the complete release package, or install Go 1.26+ and run: go build -o eunomia.exe ./cmd/eunomia' }
-        Push-Location $PSScriptRoot
+        Push-Location $packageRoot
         $savedGoEnvironment = @{}
         try {
             if ($Offline) {
