@@ -24,6 +24,7 @@ type LabLayout struct {
 	Version       int               `json:"version"`
 	Folders       []Folder          `json:"folders"`
 	Order         []string          `json:"order"`
+	RootOrder     []string          `json:"rootOrder,omitempty"`
 	DeviceFolders map[string]string `json:"deviceFolders"`
 }
 
@@ -72,7 +73,56 @@ func (s Store) ReadLayout() (LabLayout, error) {
 			return layout, errors.New("invalid folder assignment; original Lab layout left untouched")
 		}
 	}
+	seen = map[string]bool{}
+	for _, entry := range stored.RootOrder {
+		kind, id, _ := strings.Cut(entry, ":")
+		if (kind != "device" && kind != "folder") || !validID(id) || seen[entry] {
+			return layout, errors.New("invalid Lab order; original layout left untouched")
+		}
+		seen[entry] = true
+	}
 	return stored, nil
+}
+
+// Older layouts have no rootOrder. Reconcile saved entries with current profiles
+// while keeping folders and their children together as a single top-level item.
+func (l LabLayout) rootOrder(devices []Device) []string {
+	valid := map[string]bool{}
+	for _, device := range devices {
+		if l.DeviceFolders[device.ID] == "" {
+			valid["device:"+device.ID] = true
+		}
+	}
+	for _, folder := range l.Folders {
+		valid["folder:"+folder.ID] = true
+	}
+	order := []string{}
+	for _, entry := range l.RootOrder {
+		if valid[entry] {
+			order = append(order, entry)
+			delete(valid, entry)
+		}
+	}
+	for _, device := range l.search(devices, "") {
+		entry := "device:" + device.ID
+		if valid[entry] {
+			position := 0
+			for i, item := range order {
+				if strings.HasPrefix(item, "device:") {
+					position = i + 1
+				}
+			}
+			order = slices.Insert(order, position, entry)
+			delete(valid, entry)
+		}
+	}
+	for _, folder := range l.Folders {
+		entry := "folder:" + folder.ID
+		if valid[entry] {
+			order = append(order, entry)
+		}
+	}
+	return order
 }
 
 func (l LabLayout) search(devices []Device, query string) []Device {
@@ -121,9 +171,11 @@ func (s Store) mutateLayout(change func(*LabLayout, []Device) error) error {
 			delete(layout.DeviceFolders, device)
 		}
 	}
+	layout.RootOrder = layout.rootOrder(devices)
 	if err := change(&layout, devices); err != nil {
 		return err
 	}
+	layout.RootOrder = layout.rootOrder(devices)
 	data, err := json.MarshalIndent(layout, "", "  ")
 	if err != nil {
 		return err
@@ -180,10 +232,18 @@ func (s Store) CollapseFolder(id string, collapsed bool) error {
 }
 
 func (s Store) DeleteFolder(id string) error {
-	return s.mutateLayout(func(layout *LabLayout, _ []Device) error {
+	return s.mutateLayout(func(layout *LabLayout, devices []Device) error {
 		if _, err := layout.folder(id); err != nil {
 			return err
 		}
+		children := []string{}
+		for _, device := range layout.search(devices, "") {
+			if layout.DeviceFolders[device.ID] == id {
+				children = append(children, "device:"+device.ID)
+			}
+		}
+		index := slices.Index(layout.RootOrder, "folder:"+id)
+		layout.RootOrder = slices.Replace(layout.RootOrder, index, index+1, children...)
 		layout.Folders = slices.DeleteFunc(layout.Folders, func(folder Folder) bool { return folder.ID == id })
 		for device, folder := range layout.DeviceFolders {
 			if folder == id {
@@ -205,24 +265,48 @@ func (s Store) MoveDevice(id string, direction int) error {
 		}
 		index := slices.Index(layout.Order, device.ID)
 		currentFolder := layout.DeviceFolders[device.ID]
-		for next := index + direction; next >= 0 && next < len(layout.Order); next += direction {
-			if layout.DeviceFolders[layout.Order[next]] == currentFolder {
-				layout.Order[index], layout.Order[next] = layout.Order[next], layout.Order[index]
-				return nil
+		if currentFolder != "" {
+			for next := index + direction; next >= 0 && next < len(layout.Order); next += direction {
+				if layout.DeviceFolders[layout.Order[next]] == currentFolder {
+					layout.Order[index], layout.Order[next] = layout.Order[next], layout.Order[index]
+					return nil
+				}
 			}
 		}
-		// Lab displays unfiled devices followed by each folder and its children.
-		// At a group's boundary, moving crosses a heading and changes membership.
-		group := slices.IndexFunc(layout.Folders, func(folder Folder) bool { return folder.ID == currentFolder })
-		target := group + direction // -1 is the unfiled Lab group.
-		if target < -1 || target >= len(layout.Folders) {
+		entry := "device:" + device.ID
+		if currentFolder != "" {
+			entry = "folder:" + currentFolder
+		}
+		position := slices.Index(layout.RootOrder, entry)
+		target := position + direction
+		if target >= len(layout.RootOrder) || target < 0 && currentFolder == "" {
 			return errors.New("device is already at the edge of the Lab list")
 		}
-		if target == -1 {
+		targetFolder := ""
+		if target >= 0 && strings.HasPrefix(layout.RootOrder[target], "folder:") {
+			targetFolder = strings.TrimPrefix(layout.RootOrder[target], "folder:")
+		}
+		if currentFolder == "" && targetFolder == "" {
+			otherID := strings.TrimPrefix(layout.RootOrder[target], "device:")
+			otherIndex := slices.Index(layout.Order, otherID)
+			layout.Order[index], layout.Order[otherIndex] = layout.Order[otherIndex], layout.Order[index]
+			layout.RootOrder[position], layout.RootOrder[target] = layout.RootOrder[target], layout.RootOrder[position]
+			return nil
+		}
+		if targetFolder == "" {
 			delete(layout.DeviceFolders, device.ID)
+			insertAt := position
+			if direction > 0 {
+				insertAt = target + 1
+			}
+			layout.RootOrder = slices.Insert(layout.RootOrder, insertAt, "device:"+device.ID)
 		} else {
-			layout.DeviceFolders[device.ID] = layout.Folders[target].ID
-			layout.Folders[target].Collapsed = false
+			layout.DeviceFolders[device.ID] = targetFolder
+			folder, err := layout.folder(targetFolder)
+			if err != nil {
+				return err
+			}
+			folder.Collapsed = false
 		}
 		layout.Order = slices.Delete(layout.Order, index, index+1)
 		if direction > 0 {
@@ -232,6 +316,24 @@ func (s Store) MoveDevice(id string, direction int) error {
 			// Crossing up places the device after the preceding group's children.
 			layout.Order = append(layout.Order, device.ID)
 		}
+		return nil
+	})
+}
+
+func (s Store) MoveFolder(id string, direction int) error {
+	if direction != -1 && direction != 1 {
+		return errors.New("move direction must be up or down")
+	}
+	return s.mutateLayout(func(layout *LabLayout, _ []Device) error {
+		if _, err := layout.folder(id); err != nil {
+			return err
+		}
+		index := slices.Index(layout.RootOrder, "folder:"+id)
+		next := index + direction
+		if next < 0 || next >= len(layout.RootOrder) {
+			return errors.New("folder is already at the edge of the Lab list")
+		}
+		layout.RootOrder[index], layout.RootOrder[next] = layout.RootOrder[next], layout.RootOrder[index]
 		return nil
 	})
 }

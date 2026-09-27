@@ -266,7 +266,7 @@ func TestLabFolderPickerWithoutFolders(t *testing.T) {
 	}
 	press(a, tcell.KeyRight)
 	a.Draw()
-	if !strings.Contains(screenText(screen), "No folders yet. Esc, then F to create one.") {
+	if !strings.Contains(screenText(screen), "No folders yet. Esc, then Shift+F to create one.") {
 		t.Fatal("empty picker did not explain how to create a folder")
 	}
 	press(a, tcell.KeyEscape)
@@ -332,7 +332,7 @@ func TestLabFolderLayoutAtTerminalSizes(t *testing.T) {
 			a.selectFolder(folder.ID)
 			a.Draw()
 			view := screenText(screen)
-			if !strings.Contains(view, "[-] Servers (1)") || !strings.Contains(view, "M move") || !strings.Contains(view, "F folder") {
+			if !strings.Contains(view, "[-] Servers (1)") || !strings.Contains(view, "Shift+M Move folder") || !strings.Contains(view, "Shift+F New folder") {
 				t.Fatal("folder heading or organization controls clipped", view)
 			}
 			if !strings.Contains(view, "\n     Root") || !strings.Contains(view, "\n         Atlas") {
@@ -350,7 +350,7 @@ func TestLabFolderLayoutAtTerminalSizes(t *testing.T) {
 			press(a, tcell.KeyEscape)
 			typeText(a, "F")
 			a.Draw()
-			if !strings.Contains(screenText(screen), "CREATE FOLDER") || !strings.Contains(screenText(screen), "Enter save folder") {
+			if !strings.Contains(screenText(screen), "CREATE FOLDER") || !strings.Contains(screenText(screen), "Enter Save folder") {
 				t.Fatal("folder form is not usable at terminal size")
 			}
 		})
@@ -411,6 +411,19 @@ func TestNativeLabOrganization(t *testing.T) {
 		layout, err := store.ReadLayout()
 		return err == nil && !layout.Folders[0].Collapsed && strings.Contains(text(), "[-] Servers")
 	})
+	session.SendLiteral("M")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "MOVE FOLDER") })
+	session.SendLiteral("\r")
+	waitUntil(t, 3*time.Second, func() bool {
+		layout, err := store.ReadLayout()
+		return err == nil && len(layout.RootOrder) == 2 && layout.RootOrder[0] == "folder:"+folderID && layout.DeviceFolders[beta.ID] == folderID && strings.Contains(text(), "Folder moved with its devices.")
+	})
+	session.SendLiteral("?")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "ALL KEYS / PAGE 1") })
+	session.SendLiteral("\x1b[6~")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "ALL KEYS / PAGE 2") })
+	session.SendLiteral("\x1b")
+	waitUntil(t, 3*time.Second, func() bool { return strings.Contains(text(), "Shift+M Move folder") })
 	session.SendLiteral("q")
 	waitUntil(t, 3*time.Second, func() bool { session.mu.Lock(); defer session.mu.Unlock(); return session.Exited })
 	session.mu.Lock()

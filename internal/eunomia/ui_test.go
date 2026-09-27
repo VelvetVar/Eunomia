@@ -52,6 +52,9 @@ func screenText(screen tcell.SimulationScreen) string {
 func TestMouseWheelListsAndDialogs(t *testing.T) {
 	a, _ := uiFixture(t)
 	a.Filtered = make([]Device, 8)
+	for i := range a.Filtered {
+		a.Filtered[i].ID = fmt.Sprint(i)
+	}
 	a.Scan.Results = make([]Found, 8)
 	wheel := func(button tcell.ButtonMask) { a.HandleMouse(tcell.NewEventMouse(5, 10, button, tcell.ModNone)) }
 	wheel(tcell.WheelDown)
@@ -64,7 +67,7 @@ func TestMouseWheelListsAndDialogs(t *testing.T) {
 	if a.Selected != 7 {
 		t.Fatal("Lab boundary", a.Selected)
 	}
-	for _, mode := range []string{"form", "search", "details", "help", "fingerprint"} {
+	for _, mode := range []string{"form", "search", "details", "fingerprint"} {
 		a.Mode = mode
 		wheel(tcell.WheelUp)
 		if a.Selected != 7 {
@@ -72,10 +75,11 @@ func TestMouseWheelListsAndDialogs(t *testing.T) {
 		}
 	}
 	a.Mode = "list"
-	for _, guard := range []string{"busy", "pending", "paste", "prefix"} {
+	for _, guard := range []string{"busy", "pending", "paste", "prefix", "help"} {
 		a.Busy = guard == "busy"
 		a.paste = guard == "paste"
 		a.Prefix = guard == "prefix"
+		a.HelpOpen = guard == "help"
 		if guard == "pending" {
 			a.Pending = &action{Kind: "delete"}
 		} else {
@@ -87,6 +91,7 @@ func TestMouseWheelListsAndDialogs(t *testing.T) {
 		}
 	}
 	a.Busy, a.paste, a.Prefix, a.Pending = false, false, false, nil
+	a.HelpOpen = false
 	for _, position := range [][2]int{{0, 0}, {0, 37}, {-1, 10}, {110, 10}} {
 		a.HandleMouse(tcell.NewEventMouse(position[0], position[1], tcell.WheelUp, tcell.ModNone))
 	}

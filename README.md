@@ -73,24 +73,26 @@ eunomia down
 
 ## Keys you'll use most
 
+The bottom key bar adapts to the selected device, folder, or form and stays visible with status messages. **Shift+M** opens Move; plain **m** toggles animation. **Shift+F** creates a folder; plain **f** forgets a fingerprint. Press `?` in Lab/Discover or `Ctrl+B` then `?` from any screen for the complete, pageable guide.
+
 | Key | Action |
 | --- | --- |
 | `↑` / `↓` or `j` / `k` | Select a device |
 | `Enter` | Connect, or return to that device's open session |
 | `a` / `e` | Add / edit a device |
-| `M` / `Alt+↑` / `Alt+↓` | Move menu / move a device up / down, including across folder headings |
+| `Shift+M` / `Alt+↑` / `Alt+↓` | Move menu / move the selected device or whole folder up / down |
 | `→` on a device | Move an existing device into a folder or back to Lab |
-| `F` | Create a folder |
+| `Shift+F` | Create a folder |
 | `Enter` / `←` / `→` on a folder | Toggle / collapse / expand its devices |
 | `e` / `Delete` on a folder | Rename / delete the folder, keeping its devices |
 | `Delete` | Remove a saved device |
 | `/` | Search devices |
-| `D` | Open Discover |
+| `d` | Open Discover |
 | `p` | Ping devices now |
 | `f` | Forget the selected device's SSH fingerprint |
 | `F6` / `Shift+F6` | Next / previous tab |
 | `Ctrl+B`, then `0`–`9` | `0` for Lab, `1`–`9` for SSH sessions |
-| `Ctrl+B`, then `D` | Open Discover from an SSH session |
+| `Ctrl+B`, then `d` | Open Discover from an SSH session |
 | `Ctrl+B`, then `x` | Close the current SSH tab |
 | `↑` / `↓`, `Page Up` / `Page Down` | Scroll SSH output directly; `Esc` returns to live output |
 | Mouse wheel | Scroll SSH output or move through Lab and Discover lists |
@@ -98,7 +100,7 @@ eunomia down
 | Right-click | Copy selected SSH text; with no selection, paste on Windows |
 | `Alt+↑` / `Alt+↓` | Send arrow keys to the shell for command history |
 | `F7` | Switch between scrolling and selecting options in remote prompts |
-| `?` | Show the keyboard guide in Lab |
+| `?` in Lab/Discover; `Ctrl+B` then `?` anywhere | Show all shortcuts; arrows change page, Esc returns |
 
 Inside an SSH session, plain `Tab` and `Ctrl+C` go to the remote program. Full-screen remote apps keep normal arrow and page keys. Use `Ctrl+B` for tab controls; scrolling needs no prefix. The [usage guide](docs/usage.md) covers all keys, discovery, and command-line options.
 

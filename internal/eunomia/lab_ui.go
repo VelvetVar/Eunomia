@@ -2,6 +2,7 @@ package eunomia
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 )
@@ -20,6 +21,7 @@ type folderFormState struct {
 
 type moveState struct {
 	DeviceID    string
+	FolderID    string
 	Selected    int
 	FoldersOnly bool
 }
@@ -27,11 +29,14 @@ type moveState struct {
 func (a *App) labRows() []labRow {
 	rows := []labRow{}
 	groups := map[string][]Device{}
+	rootDevices := map[string]Device{}
 	for _, device := range a.Filtered {
 		folder := a.Layout.DeviceFolders[device.ID]
 		// Search always finds devices inside collapsed folders.
-		if folder == "" || a.Query != "" {
+		if a.Query != "" {
 			rows = append(rows, labRow{Device: device})
+		} else if folder == "" {
+			rootDevices[device.ID] = device
 		} else {
 			groups[folder] = append(groups[folder], device)
 		}
@@ -39,9 +44,18 @@ func (a *App) labRows() []labRow {
 	if a.Query != "" {
 		return rows
 	}
-	for _, folder := range a.Layout.Folders {
+	for _, entry := range a.Layout.rootOrder(a.Filtered) {
+		kind, id, _ := strings.Cut(entry, ":")
+		if kind == "device" {
+			rows = append(rows, labRow{Device: rootDevices[id]})
+			continue
+		}
+		folder, err := a.Layout.folder(id)
+		if err != nil {
+			continue
+		}
 		devices := groups[folder.ID]
-		rows = append(rows, labRow{Folder: folder, IsFolder: true, Count: len(devices)})
+		rows = append(rows, labRow{Folder: *folder, IsFolder: true, Count: len(devices)})
 		if !folder.Collapsed {
 			for _, device := range devices {
 				rows = append(rows, labRow{Device: device})
@@ -118,6 +132,16 @@ func (a *App) moveDevice(id string, direction int) {
 	a.setMessage(err, message)
 }
 
+func (a *App) moveFolder(id string, direction int) {
+	err := a.Store.MoveFolder(id, direction)
+	if err == nil {
+		a.Query = ""
+		err = a.refresh()
+		a.selectFolder(id)
+	}
+	a.setMessage(err, "Folder moved with its devices.")
+}
+
 func (a *App) beginFolder(folder Folder) {
 	a.Mode, a.Message, a.Error = "folder", "", false
 	a.FolderForm = folderFormState{ID: folder.ID, Name: folder.Name, Cursor: len([]rune(folder.Name))}
@@ -173,11 +197,19 @@ func (a *App) labModeKey(event *tcell.EventKey) bool {
 		}
 		a.Move.Selected = max(first, a.Move.Selected-1)
 	case event.Key() == tcell.KeyDown || event.Rune() == 'j':
-		a.Move.Selected = min(len(a.Layout.Folders)+2, a.Move.Selected+1)
+		last := len(a.Layout.Folders) + 2
+		if a.Move.FolderID != "" {
+			last = 1
+		}
+		a.Move.Selected = min(last, a.Move.Selected+1)
 	case event.Key() == tcell.KeyEnter:
 		if a.Move.Selected < 2 {
 			a.Mode = "list"
-			a.moveDevice(a.Move.DeviceID, 2*a.Move.Selected-1)
+			if a.Move.FolderID != "" {
+				a.moveFolder(a.Move.FolderID, 2*a.Move.Selected-1)
+			} else {
+				a.moveDevice(a.Move.DeviceID, 2*a.Move.Selected-1)
+			}
 			return true
 		}
 		folderID, destination := "", "Lab (no folder)"
@@ -207,17 +239,33 @@ func (a *App) drawFolderForm(w, top int) {
 	a.put(3, top+1, title, tealStyle, w-6)
 	a.put(3, top+3, "Folder name", dimStyle, w-6)
 	a.put(3, top+5, inputView(a.FolderForm.Name, a.FolderForm.Cursor, w-6), whiteStyle, w-6)
-	a.put(3, top+7, "Use M on a device to move it into a folder.", dimStyle, w-6)
+	a.put(3, top+7, "Use Shift+M on a device to move it into a folder.", dimStyle, w-6)
 }
 
-func (a *App) drawMove(w, h, top int) {
+func (a *App) drawMove(w, bottom, top int) {
 	title := "MOVE DEVICE"
 	if a.Move.FoldersOnly {
 		title = "MOVE TO FOLDER"
+	} else if a.Move.FolderID != "" {
+		title = "MOVE FOLDER"
 	}
 	a.put(3, top+1, title, tealStyle, w-6)
 	if device, err := Find(a.Devices, a.Move.DeviceID); err == nil {
 		a.put(3, top+2, device.Name, whiteStyle, w-6)
+	}
+	if a.Move.FolderID != "" {
+		if folder, err := a.Layout.folder(a.Move.FolderID); err == nil {
+			a.put(3, top+2, folder.Name, whiteStyle, w-6)
+		}
+		a.put(3, top+3, "The folder and all its devices move together.", dimStyle, w-6)
+		for i, label := range []string{"Move folder up", "Move folder down"} {
+			style, marker := baseStyle, "  "
+			if i == a.Move.Selected {
+				style, marker = tealStyle, "› "
+			}
+			a.put(3, top+5+i, marker+label, style, w-6)
+		}
+		return
 	}
 	a.put(3, top+3, "Current location: "+a.deviceLocation(a.Move.DeviceID), dimStyle, w-6)
 	choices := []string{"Move up in Lab", "Move down in Lab", "Move to Lab (no folder)"}
@@ -228,12 +276,12 @@ func (a *App) drawMove(w, h, top int) {
 	if a.Move.FoldersOnly {
 		first = 2
 		if len(a.Layout.Folders) == 0 {
-			a.put(3, top+4, "No folders yet. Esc, then F to create one.", dimStyle, w-6)
+			a.put(3, top+4, "No folders yet. Esc, then Shift+F to create one.", dimStyle, w-6)
 		}
 	} else {
 		a.put(3, top+4, "Crossing a folder heading changes membership.", dimStyle, w-6)
 	}
-	visible := max(1, h-top-9)
+	visible := max(1, bottom-top-5)
 	offset := max(first, a.Move.Selected-visible+1)
 	for i := offset; i < min(len(choices), offset+visible); i++ {
 		style, marker := baseStyle, "  "

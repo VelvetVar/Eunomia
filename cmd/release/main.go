@@ -196,7 +196,7 @@ func run() error {
 		if target == "windows" {
 			instruction = "Extract this ZIP and run .\\setup.cmd in PowerShell or CMD.\n"
 		}
-		instruction += "Open a new terminal: eunomia up\nFrom a second terminal: eunomia down\nD = Discover; Delete = remove a saved device.\n\nThis Go release includes x64 and ARM64 executables. No Node.js, npm or Go installation is required. Setup can run offline when OpenSSH is installed. Missing OS SSH/ping tools may require administrator access and a network connection. Existing devices.json profiles are reused. See README.md for options and migration notes.\n"
+		instruction += "Open a new terminal: eunomia up\nFrom a second terminal: eunomia down\nShift+M = Move; Shift+F = New folder; d = Discover; ? = All keys.\n\nThis Go release includes x64 and ARM64 executables. No Node.js, npm or Go installation is required. Setup can run offline when OpenSSH is installed. Missing OS SSH/ping tools may require administrator access and a network connection. Existing devices.json profiles are reused. See README.md for options and migration notes.\n"
 		entries = append(entries, entry{prefix + "/INSTALL.txt", []byte(instruction), false})
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 		var manifest strings.Builder

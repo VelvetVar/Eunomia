@@ -229,6 +229,8 @@ func TestLabLayoutValidationAndLockPreserveOriginalFiles(t *testing.T) {
 		`{"version":1,"folders":[{"id":"one","name":"A"},{"id":"two","name":" a "}],"order":[],"deviceFolders":{}}`,
 		`{"version":1,"folders":[],"order":["same","same"],"deviceFolders":{}}`,
 		`{"version":1,"folders":[],"order":[],"deviceFolders":{"device":"missing"}}`,
+		`{"version":1,"folders":[],"order":[],"deviceFolders":{},"rootOrder":["wrong:id"]}`,
+		`{"version":1,"folders":[],"order":[],"deviceFolders":{},"rootOrder":["folder:one","folder:one"]}`,
 		`{"version":1}`, `{broken`,
 	} {
 		if err := os.WriteFile(store.LayoutPath(), []byte(original), 0600); err != nil {

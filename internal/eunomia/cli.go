@@ -17,7 +17,7 @@ import (
 	"text/tabwriter"
 )
 
-var Version = "2.1.2"
+var Version = "2.2.0"
 
 const help = `EUNOMIA / Native Go homelab manager
 
@@ -36,20 +36,25 @@ Usage:
   eunomia install [--root path] [--bin path] [--no-path]
   eunomia --help | --version
 
-Lab: a add / e edit / Delete remove / f forget fingerprint / D Discover
+Lab: a add / e edit / Delete remove / f forget fingerprint / d Discover
      arrows or j,k select / Enter SSH / p ping / r reload / m motion / q quit
-     M Move / Alt+Up,Down reorder / F new folder / e rename folder
+     Shift+M Move menu / Alt+Up,Down move / Shift+F new folder
+     v details / ? all keys / e rename selected folder
      Move past a folder heading to change device membership
      Right on a device: move into a folder or back to Lab
      Enter or Space toggles folders / Left collapse / Right expand
-Tabs: Ctrl+B then n/p, h or 0 Lab, D Discover, 0-9 select, x close
+Tabs: Ctrl+B, release, then n/p tabs, h or 0 Lab, d Discover, x close
+      Ctrl+B then 1-9 selects SSH tabs; Ctrl+B then ? shows all keys
       F6 / Shift+F6 switch; Ctrl+B then b sends Ctrl+B
 SSH: arrows / PgUp,PgDn / mouse wheel scroll; Esc returns to live output
      Alt+Up/Down sends shell arrows; full-screen apps keep normal keys
      F7 toggles remote selection mode for prompts; wheel still scrolls
      Right-click copies selected text; otherwise pastes on Windows
      Left-drag selects SSH output; release to copy; Esc clears selection
-Forms: Tab or arrows switch fields / Enter save / Esc cancel / Ctrl+U clear
+Forms: Tab/Down next field / Shift+Tab/Up previous field
+       Left/Right cursor / Enter save / Esc cancel / Ctrl+U clear
+Keys are case-sensitive: Shift+M moves; m toggles animation.
+Shift+F creates a folder; f forgets a fingerprint.
 
 Devices persist in the same devices.json format as Eunomia 1.x.
 Passwords and terminal output are never saved. EUNOMIA_HOME overrides storage.

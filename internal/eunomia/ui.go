@@ -66,6 +66,8 @@ type App struct {
 	View                 int // 0 Lab, -1 Discover, 1..N SSH tabs
 	Sessions             []*Session
 	Prefix               bool
+	HelpOpen             bool
+	HelpPage             int
 	Pending              *action
 	Busy, Opening        bool
 	Animate              bool
@@ -331,7 +333,7 @@ func (a *App) handlePaste(start bool) {
 	a.pasteBuffer.Reset()
 	session := a.pasteSession
 	a.pasteSession = nil
-	if a.Pending != nil || a.Busy {
+	if a.Pending != nil || a.Busy || a.HelpOpen {
 		return
 	}
 	if session != nil {
@@ -530,7 +532,7 @@ func (a *App) HandleMouse(event *tcell.EventMouse) {
 	previous := a.mouseButtons
 	rightPress := buttons&tcell.ButtonSecondary != 0 && previous&tcell.ButtonSecondary == 0
 	a.mouseButtons = buttons
-	if a.paste || a.Busy || a.Pending != nil || a.Prefix {
+	if a.paste || a.Busy || a.Pending != nil || a.Prefix || a.HelpOpen {
 		a.selection = nil
 		return
 	}
@@ -618,6 +620,10 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 		}
 		return
 	}
+	if a.HelpOpen {
+		a.helpKey(event)
+		return
+	}
 	if a.Busy {
 		return
 	}
@@ -667,6 +673,8 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 			a.activate(0)
 		case r == 'd' || r == 'D':
 			a.activate(-1)
+		case r == '?':
+			a.openHelp()
 		case r >= '1' && r <= '9':
 			index := int(r - '0')
 			if index <= len(a.Sessions) {
@@ -787,14 +795,21 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 		a.beginFolder(Folder{})
 	case r == 'M' && hasDevice:
 		a.beginMove(d.ID, false)
+	case r == 'M' && hasFolder:
+		a.Mode = "move"
+		a.Move = moveState{FolderID: folder.ID}
 	case key == tcell.KeyRight && hasDevice:
 		a.beginMove(d.ID, true)
-	case event.Modifiers() == tcell.ModAlt && (key == tcell.KeyUp || key == tcell.KeyDown) && hasDevice:
+	case event.Modifiers() == tcell.ModAlt && (key == tcell.KeyUp || key == tcell.KeyDown) && (hasDevice || hasFolder):
 		direction := -1
 		if key == tcell.KeyDown {
 			direction = 1
 		}
-		a.moveDevice(d.ID, direction)
+		if hasFolder {
+			a.moveFolder(folder.ID, direction)
+		} else {
+			a.moveDevice(d.ID, direction)
+		}
 	case hasFolder && (key == tcell.KeyEnter || key == tcell.KeyLeft || key == tcell.KeyRight || r == ' '):
 		collapsed := !folder.Collapsed
 		if key == tcell.KeyLeft {
@@ -823,7 +838,7 @@ func (a *App) HandleKey(event *tcell.EventKey) {
 		a.Mode = "search"
 		a.searchCursor = len([]rune(a.Query))
 	case r == '?':
-		a.Mode = "help"
+		a.openHelp()
 	case r == 'r':
 		a.setMessage(a.refresh(), "")
 		a.startPing()
@@ -1001,6 +1016,8 @@ func (a *App) discoveryKey(event *tcell.EventKey) {
 	switch {
 	case key == tcell.KeyEscape:
 		a.activate(0)
+	case r == '?':
+		a.openHelp()
 	case r == 'q':
 		a.quit()
 	case r == 'r':

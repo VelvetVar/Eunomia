@@ -28,15 +28,19 @@ eunomia up --no-animation
 
 Lab is your saved device list and occupies tab `0`.
 
+The bottom key bar shows the actions available for the current selection or form. Shortcuts stay visible alongside status messages and wrap to fit the terminal. Keys are case-sensitive: **Shift+M** opens Move, while plain **m** toggles animation; **Shift+F** creates a folder, while plain **f** forgets a fingerprint. Hold the modifier when a shortcut includes `+`. For `Ctrl+B then key`, release Ctrl+B before pressing the next key.
+
+Press `?` in Lab or Discover for the complete keyboard guide, or `Ctrl+B` then `?` from any screen, including SSH. Use left/right arrows or Page Up/Page Down to browse and `Esc` to return to your unchanged screen or form.
+
 | Key | Action |
 | --- | --- |
 | `↑` / `↓`, `j` / `k` | Move through devices |
 | `a` | Add a device |
 | `e` | Edit the selected device |
-| `M` | Open Move: up, down, another folder, or back to Lab |
+| `Shift+M` | Open Move for the selected device or folder |
 | `→` on a device | Open the folder picker for that existing device |
-| `Alt+↑` / `Alt+↓` | Move the selected device up / down, including across folder headings |
-| `F` | Create a folder |
+| `Alt+↑` / `Alt+↓` | Move a device across rows or folder headings; move a folder with all its devices |
+| `Shift+F` | Create a folder |
 | `Enter` / `Space` on a folder | Collapse or expand its devices |
 | `←` / `→` on a folder | Collapse / expand |
 | `e` / `Delete` on a folder | Rename / delete the folder after confirmation |
@@ -45,9 +49,9 @@ Lab is your saved device list and occupies tab `0`.
 | `/` | Search names, hosts, users, and descriptions |
 | `v` | Show full device details |
 | `f` | Forget the selected device's saved SSH fingerprint |
-| `D` or `d` | Open Discover |
+| `d` | Open Discover (uppercase D also works) |
 | `p` | Ping saved devices now |
-| `r` | Reload the device file |
+| `r` | Reload devices and Lab order, then ping |
 | `m` | Pause or resume the logo |
 | `?` | Show the keyboard guide |
 | `Esc` | Cancel or return to the list; clear search |
@@ -65,9 +69,9 @@ Deleting a profile doesn't edit the remote device or remove its SSH fingerprint.
 
 ### Folders and device order
 
-Press `F`, type a folder name, and press `Enter`. Select a device and press `M` to move it up or down in Lab, put it inside a folder, or return it to Lab. `Alt+↑` and `Alt+↓` move directly. Folders appear below devices that are not in a folder.
+Press `Shift+F`, type a folder name, and press `Enter`. Select a device or folder and press `Shift+M` to open its Move menu. `Alt+↑` and `Alt+↓` move the selected item directly. New folders start at the bottom, and can be moved anywhere in Lab, including above or between unfiled devices. Each folder moves with all its members and keeps its collapsed or expanded state.
 
-Move down from the last device above a folder to place it directly beneath that folder's heading as its first member. Move up from a folder's first device to place it above the heading: it becomes the last member of the preceding folder, or returns to Lab above the first folder. Crossing into a collapsed folder expands it. The edge-of-list message appears only at the top or bottom of the full Lab list, not at folder boundaries. These moves use the full Lab order even when started from search results.
+Move a device down across a folder heading to make it that folder's first member. Move an unfiled device up into the preceding folder to make it the last member. Moving a folder's first device above its heading puts it in the preceding folder, if adjacent, or returns it to Lab. Moving its last device past an adjacent unfiled device returns it to Lab below that device. Crossing into a collapsed folder expands it. The edge-of-list message appears only at the top or bottom of Lab. These moves use the full Lab order even when started from search results.
 
 To choose a destination directly, select the device, press `→`, choose `Move to folder: <name>` with up/down arrows, and press `Enter`. The picker shows its current location and places the device at the end of the destination folder. The destination folder expands and the device appears beneath it, indented four spaces from devices at the Lab level:
 
@@ -99,7 +103,8 @@ For a prefix shortcut, press `Ctrl+B`, release both keys, then press the next ke
 | `Ctrl+B`, then `Tab` / `Shift+Tab` | Next / previous tab |
 | `Ctrl+B`, then `0` or `h` | Return to Lab |
 | `Ctrl+B`, then `1`–`9` | Select an SSH tab by number |
-| `Ctrl+B`, then `D` or `d` | Open Discover |
+| `Ctrl+B`, then `d` | Open Discover |
+| `Ctrl+B`, then `?` | Show all shortcuts; `Esc` returns to the current screen |
 | `Ctrl+B`, then `x` | Close the current SSH tab |
 | `↑` / `↓` | Scroll SSH output one line, without a prefix |
 | `Page Up` / `Page Down` | Scroll SSH output one page, without a prefix |
@@ -123,7 +128,7 @@ Use `↑` / `↓`, page keys, or the wheel to scroll immediately. Press `Esc` to
 
 Remote programs using the alternate screen, such as Vim and top, receive normal arrow and page keys, including their modifiers. The wheel is forwarded if the program enables mouse reporting; otherwise it has no effect there. Programs that stay on the main screen can receive arrow and page keys through the Alt shortcuts above.
 
-For an installer or menu that asks you to choose an option with the arrows, press `F7`. The footer shows `SELECT: ↑/↓ remote options`. Arrow and page keys now go to the remote program, with their modifiers intact, while the wheel still scrolls Eunomia's history. After scrolling, an arrow key returns to the live prompt and changes the selection; `Esc` returns to live output without changing it. `Enter` confirms the remote choice as usual. Press `F7` again to restore `SCROLL` mode. Each tab keeps its own mode until it is closed.
+For an installer or menu that asks you to choose an option with the arrows, press `F7`. The footer shows `SELECT: ↑/↓ remote options`. Arrow and page keys now go to the remote program, with their modifiers intact, while the wheel still scrolls Eunomia's history. After scrolling, an arrow key returns to the live prompt and changes the selection; `Esc` returns to live output without changing it. `Enter` confirms the remote choice as usual. Press `F7` again to restore `SCROLL` mode. Each tab keeps its own mode until it is closed. Press `Ctrl+B` to see the available tab commands at the bottom, including `?` for the complete guide.
 
 Eunomia detects alternate-screen applications automatically. Prompts that stay on the main screen need `F7` because ordinary terminal output does not identify whether a program is waiting for an arrow-key selection. The Alt shortcuts send plain arrows and page keys only in `SCROLL` mode.
 
@@ -137,7 +142,7 @@ Eunomia uses your system OpenSSH client. Authentication, SSH configuration, keys
 
 ## Discover
 
-Press `D` in Lab, or `Ctrl+B` followed by `D` in an SSH tab.
+Press `d` in Lab, or `Ctrl+B` followed by `d` in an SSH tab.
 
 The first visit scans the selected local private IPv4 range. If no range is available, press `c` and enter one, such as `192.168.1.0/24` or a single IPv4 address.
 
@@ -151,6 +156,7 @@ The first visit scans the selected local private IPv4 range. If no range is avai
 | `Enter` or `a` | Open a save form, or select an existing saved device |
 | `Esc` | Return to Lab; cancel subnet entry when editing |
 | `q` | Quit Eunomia |
+| `?` | Show the complete shortcut guide |
 
 Discovery checks TCP port `22` with up to 24 connections at a time and a 900 ms deadline per address. An SSH banner confirms the service. A port that accepts a connection without returning an SSH banner is marked **Open, unverified**. Discovery doesn't send credentials or attempt to log in.
 
