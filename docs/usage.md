@@ -253,6 +253,22 @@ eunomia import my-lab.json --yes
 
 Export creates a new file and refuses to overwrite an existing filename. Import validates the complete file before replacing the destination Lab; `--yes` confirms replacement. Press `r` to reload an already-open Lab after importing. Existing SSH sessions are unaffected. You can also close Eunomia and copy `devices.json` directly to the location printed by `eunomia path`.
 
+### Move a Lab to another PC
+
+On the old PC, create a portable backup:
+
+```sh
+eunomia export my-lab.json
+```
+
+Copy `my-lab.json` to the new PC, install Eunomia, then run:
+
+```sh
+eunomia import my-lab.json --yes
+```
+
+Import replaces the Lab on the destination PC. SSH keys and OpenSSH configuration are not included, so copy those separately if the connections rely on them. As an alternative, with Eunomia closed, copy `devices.json` directly to the destination reported by `eunomia path` (keeping a backup of the existing destination file first).
+
 On startup or the next save, older version 1 device profiles and their separate `lab.json` are combined automatically. `devices.json.v1-backup` preserves the original device file, and the old `lab.json` remains untouched but is ignored after migration. They are migration backups, not additional files required for export. The combined file requires Eunomia 2.3 or newer. SSH keys, SSH configuration, and host-key files remain managed separately by OpenSSH.
 
 The configuration directory can also contain `running.json`, which identifies the active TUI for `eunomia down`, a temporary `devices.json.lock` while a writer is active, and a `logs` folder for diagnostics. Don't copy these as part of a device backup. Use `eunomia logs` after a connection failure or `eunomia logs --path` to locate the files. See [Connection logs](troubleshooting.md#connection-logs) for retention and privacy details.

@@ -126,6 +126,22 @@ eunomia import my-lab.json --yes
 
 Export creates a new file. Import replaces the destination Lab; press `r` in an open Lab to reload it. Moving systems beneath an expanded folder heading makes them members, and moving an expanded folder above systems adopts them automatically. Collapsed folders and subfolders stay closed and ignore systems passing them. Expanding later preserves that membership. Deleting a folder preserves its devices and subfolders.
 
+### Move a Lab to another PC
+
+On the old PC, create a portable backup:
+
+```sh
+eunomia export my-lab.json
+```
+
+Copy `my-lab.json` to the new PC, install Eunomia, then import it:
+
+```sh
+eunomia import my-lab.json --yes
+```
+
+Import replaces the Lab on the destination PC. The saved profile is `devices.json`; run `eunomia path` to print its exact location. By default it is `%APPDATA%\Eunomia\devices.json` on Windows, `~/.config/eunomia/devices.json` on Linux, and `~/Library/Application Support/Eunomia/devices.json` on macOS. SSH keys and OpenSSH configuration are separate from this file and must be copied independently when needed.
+
 Existing version 1 profiles and the old separate `lab.json` are migrated automatically. The original device file is retained as `devices.json.v1-backup`; the old `lab.json` is no longer used after migration. The combined format requires Eunomia 2.3 or newer. Only the new `devices.json` is needed to transfer the complete Lab.
 
 ## Build from source
